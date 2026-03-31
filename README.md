@@ -27,7 +27,10 @@ npm install -g @githubnext/github-copilot-cli
 
 ### Homebrew (recommended)
 
-> Coming soon — tap setup in progress.
+```bash
+brew tap Tyrannoapartment/harn
+brew install harn
+```
 
 ### curl
 
