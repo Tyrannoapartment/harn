@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# harn 제거 스크립트
+# harn uninstaller
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ else
 fi
 
 echo ""
-echo -e "${W}harn 제거${N}"
+echo -e "${W}harn uninstaller${N}"
 echo -e "────────────────────────────────────"
 echo ""
 
@@ -29,17 +29,17 @@ RM="rm"
 
 if [[ -L "$BIN_DIR/harn" ]]; then
   $RM -f "$BIN_DIR/harn"
-  echo -e "${G}  ✓${N}  $BIN_DIR/harn 제거됨"
+  echo -e "${G}  ✓${N}  Removed $BIN_DIR/harn"
 fi
 
 if [[ -d "$LIB_DIR" ]]; then
   $RM -rf "$LIB_DIR"
-  echo -e "${G}  ✓${N}  $LIB_DIR 제거됨"
+  echo -e "${G}  ✓${N}  Removed $LIB_DIR"
 fi
 
 echo ""
-echo -e "${Y}  !${N}  프로젝트 내 .harness/ 와 .harness_config 는 제거하지 않았습니다."
-echo "     직접 삭제하려면: rm -rf .harness .harness_config"
+echo -e "${Y}  !${N}  Project-level .harness/ and .harness_config were NOT removed."
+echo "     To remove them manually: rm -rf .harness .harness_config"
 echo ""
-echo -e "${G}제거 완료${N}"
+echo -e "${G}Uninstall complete.${N}"
 echo ""

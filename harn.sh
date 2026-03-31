@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# harn — AI 멀티 에이전트 스프린트 개발 루프
+# harn — AI Multi-Agent Sprint Development Loop
 #
-#   기획자  → 개발자 → 평가자 루프를 자동화해 백로그 항목을 스프린트 단위로 구현
+#   Automates a Planner → Generator → Evaluator loop to implement backlog items sprint by sprint
 #
-# 사용법:  harn <command>
-#   harn start      백로그 항목 선택 후 실행
-#   harn auto       자동 모드 (재개 / 시작 / 발굴)
-#   harn backlog    대기 항목 표시
-#   harn status     현재 상태
-#   harn help       전체 도움말
+# Usage:  harn <command>
+#   harn start      select backlog item and run
+#   harn auto       auto mode (resume / start / discover)
+#   harn backlog    show pending items
+#   harn status     current status
+#   harn help       full help
 
 set -euo pipefail
 
 HARN_VERSION="1.0.0"
 
-# 심볼릭 링크를 해석해 스크립트의 실제 위치를 찾음
+# Resolve symlink to find the actual script location
 _THIS="${BASH_SOURCE[0]}"
 while [[ -L "$_THIS" ]]; do _THIS="$(readlink "$_THIS")"; done
 SCRIPT_DIR="$(cd "$(dirname "$_THIS")" && pwd)"
@@ -23,7 +23,7 @@ HARNESS_DIR="$ROOT_DIR/.harness"
 PROMPTS_DIR="$SCRIPT_DIR/prompts"
 CONFIG_FILE="$ROOT_DIR/.harness_config"
 
-# 기본값 (config 로드 전)
+# Defaults (before config is loaded)
 BACKLOG_FILE="$ROOT_DIR/docs/planner/sprint-backlog.md"
 BACKLOG_FILE_DISPLAY="${BACKLOG_FILE}"
 MAX_ITERATIONS=5
@@ -38,21 +38,21 @@ GIT_PR_DRAFT="true"
 GIT_AUTO_MERGE="false"
 CUSTOM_PROMPTS_DIR=""
 
-# 회고 억제 플래그 (harn all 에서 개별 항목 회고 방지용)
+# Retrospective suppression flag (prevents per-item retro in harn all)
 HARN_SKIP_RETRO="false"
 
-# 역할별 모델 기본값 (config 또는 env 로 오버라이드 가능)
+# Role-specific model defaults (can be overridden via config or env)
 COPILOT_MODEL_PLANNER="claude-haiku-4.5"
 COPILOT_MODEL_GENERATOR_CONTRACT="claude-sonnet-4.6"
 COPILOT_MODEL_GENERATOR_IMPL="claude-opus-4.6"
 COPILOT_MODEL_EVALUATOR_CONTRACT="claude-haiku-4.5"
 COPILOT_MODEL_EVALUATOR_QA="claude-sonnet-4.5"
 
-# ── 로그 설정 ──────────────────────────────────────────────────────────────────
+# ── Log setup ──────────────────────────────────────────────────────────────────
 mkdir -p "$HARNESS_DIR"
 LOG_FILE="$HARNESS_DIR/harness.log"
 
-# ── 색상 & 스타일 ──────────────────────────────────────────────────────────────
+# ── Colors & styles ────────────────────────────────────────────────────────────
 R=$'\033[0;31m'   # red
 G=$'\033[0;32m'   # green
 Y=$'\033[0;33m'   # yellow
@@ -64,10 +64,10 @@ D=$'\033[2m'      # dim
 N=$'\033[0m'      # reset
 BLD=$'\033[1m'    # bold
 
-# 사용자 지시사항 세션 버퍼
+# User instructions session buffer
 USER_EXTRA_INSTRUCTIONS=""
 
-# ── 로그 함수 ──────────────────────────────────────────────────────────────────
+# ── Log functions ──────────────────────────────────────────────────────────────
 _ts()      { date '+%H:%M:%S'; }
 _log_raw() { echo -e "$*"; echo -e "$*" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"; }
 
@@ -133,7 +133,7 @@ print(color + "  \u2502" + reset + "  " + dim    + detail + reset)
 print(bar)
 print()
 ' "$ansi_color" "$model" "$role" "$task")
-  # 터미널 출력 + 로그 파일 기록 (ANSI 제거)
+  # Terminal output + log file write (ANSI stripped)
   echo -e "$output"
   echo -e "$output" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
 }
@@ -143,7 +143,7 @@ log_agent_done() {
   _log_raw "${D}  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌${N}"
 }
 
-# ── 배너 ───────────────────────────────────────────────────────────────────────
+# ── Banner ─────────────────────────────────────────────────────────────────────
 _print_banner() {
   python3 - <<'PYEOF'
 import unicodedata
@@ -162,7 +162,7 @@ bold   = "\033[1m"
 reset  = "\033[0m"
 
 title    = "◆ harn"
-subtitle = "AI 멀티 에이전트 스프린트 루프"
+subtitle = "AI Multi-Agent Sprint Loop"
 
 top    = cyan + "  ╭" + "─" * W + "╮" + reset
 line1  = cyan + "  │" + reset + "  " + bold + bwhite + pad(title, W - 2) + reset + cyan + "│" + reset
@@ -178,7 +178,7 @@ print()
 PYEOF
 }
 
-# ── 스프린트 진행률 ────────────────────────────────────────────────────────────
+# ── Sprint progress ────────────────────────────────────────────────────────────
 _print_sprint_progress() {
   local current="$1" total="$2"
   [[ "$total" -le 0 ]] && return
@@ -193,17 +193,17 @@ _print_sprint_progress() {
   _log_raw ""
 }
 
-# ── 사용자 지시사항 입력 ────────────────────────────────────────────────────────
+# ── User instructions input ────────────────────────────────────────────────────
 _ask_user_instructions() {
-  local context="${1:-다음 에이전트}"
+  local context="${1:-next agent}"
 
-  # 비대화형 환경(파이프, CI 등)이면 스킵
+  # Skip in non-interactive environments (pipes, CI, etc.)
   [[ ! -t 1 ]] && return 0
 
   echo -e "" >/dev/tty
-  echo -e "${B}  ╭─ 💬 추가 지시사항${N}" >/dev/tty
-  echo -e "${B}  │${N}  ${W}${context}${N}에게 전달할 내용을 입력하세요." >/dev/tty
-  echo -e "${B}  │${N}  ${D}빈 줄 = 건너뛰기  ·  여러 줄 입력 가능${N}" >/dev/tty
+  echo -e "${B}  ╭─ 💬 Additional instructions${N}" >/dev/tty
+  echo -e "${B}  │${N}  Enter instructions to pass to ${W}${context}${N}." >/dev/tty
+  echo -e "${B}  │${N}  ${D}Empty line = skip  ·  Multi-line input supported${N}" >/dev/tty
   echo -e "${B}  ╰${N}" >/dev/tty
 
   local content
@@ -211,19 +211,19 @@ _ask_user_instructions() {
 
   if [[ -n "$content" ]]; then
     USER_EXTRA_INSTRUCTIONS="${USER_EXTRA_INSTRUCTIONS}
-## 사용자 지시사항 ($(_ts))
+## User Instructions ($(_ts))
 
 ${content}"
-    echo -e "  ${G}✓${N}  다음 에이전트에 전달됩니다." >/dev/tty
+    echo -e "  ${G}✓${N}  Will be passed to the next agent." >/dev/tty
     echo -e "" >/dev/tty
   fi
 }
 
-# ── Python readline 기반 입력 헬퍼 ─────────────────────────────────────────────
-# readline/libedit을 통해 한국어 등 멀티바이트 문자의 백스페이스를 올바르게 처리
+# ── Python readline-based input helpers ─────────────────────────────────────────
+# Correctly handles backspace for multi-byte characters (e.g., Korean) via readline/libedit
 
-# 단일 줄 입력 — raw mode + 직접 wide-char 백스페이스 처리
-# (macOS libedit은 한국어 2컬럼 문자 백스페이스를 잘못 처리함)
+# Single line input — raw mode + direct wide-char backspace handling
+# (macOS libedit mishandles backspace for 2-column Korean characters)
 _input_readline() {
   python3 -c '
 import sys, tty, termios, unicodedata
@@ -274,7 +274,7 @@ if result: print(result, end="")
 '
 }
 
-# 여러 줄 입력 (빈 줄로 완료) — raw mode + wide-char 백스페이스
+# Multi-line input (empty line = done) — raw mode + wide-char backspace
 _input_multiline() {
   python3 -c '
 import sys, tty, termios, unicodedata
@@ -353,10 +353,10 @@ copilot_supports_model_flag() {
   [[ "$COPILOT_MODEL_FLAG_SUPPORT" == "true" ]]
 }
 
-# ── 역할별 모델 설정 ─────────────────────────────────────────────────────────
+# ── Role-specific model configuration ───────────────────────────────────────
 
 validate_role_models() {
-  : # 모든 역할이 copilot 고정 — 별도 검증 불필요
+  : # All roles use copilot — no separate validation needed
 }
 
 print_model_config() {
@@ -368,7 +368,7 @@ print_model_config() {
   echo -e "  evaluator (qa)        : ${W}copilot / $COPILOT_MODEL_EVALUATOR_QA${N}       (env: HARNESS_COPILOT_MODEL_EVALUATOR_QA)"
 }
 
-# ── 설정 로드 ──────────────────────────────────────────────────────────────────
+# ── Config loading ──────────────────────────────────────────────────────────────
 
 load_config() {
   [[ ! -f "$CONFIG_FILE" ]] && return
@@ -376,20 +376,20 @@ load_config() {
   # shellcheck source=/dev/null
   source "$CONFIG_FILE"
 
-  # 상대 경로로 저장된 BACKLOG_FILE → 절대 경로 변환
+  # Convert relative BACKLOG_FILE path → absolute path
   if [[ -n "${BACKLOG_FILE:-}" && "${BACKLOG_FILE}" != /* ]]; then
     BACKLOG_FILE="$ROOT_DIR/$BACKLOG_FILE"
   fi
   BACKLOG_FILE_DISPLAY="$BACKLOG_FILE"
 
-  # config 파일의 MODEL_* 변수 → 내부 COPILOT_MODEL_* 에 적용 (env 오버라이드 우선)
+  # Apply MODEL_* vars from config → internal COPILOT_MODEL_* (env override takes precedence)
   COPILOT_MODEL_PLANNER="${HARNESS_COPILOT_MODEL_PLANNER:-${MODEL_PLANNER:-$COPILOT_MODEL_PLANNER}}"
   COPILOT_MODEL_GENERATOR_CONTRACT="${HARNESS_COPILOT_MODEL_GENERATOR_CONTRACT:-${MODEL_GENERATOR_CONTRACT:-$COPILOT_MODEL_GENERATOR_CONTRACT}}"
   COPILOT_MODEL_GENERATOR_IMPL="${HARNESS_COPILOT_MODEL_GENERATOR_IMPL:-${MODEL_GENERATOR_IMPL:-$COPILOT_MODEL_GENERATOR_IMPL}}"
   COPILOT_MODEL_EVALUATOR_CONTRACT="${HARNESS_COPILOT_MODEL_EVALUATOR_CONTRACT:-${MODEL_EVALUATOR_CONTRACT:-$COPILOT_MODEL_EVALUATOR_CONTRACT}}"
   COPILOT_MODEL_EVALUATOR_QA="${HARNESS_COPILOT_MODEL_EVALUATOR_QA:-${MODEL_EVALUATOR_QA:-$COPILOT_MODEL_EVALUATOR_QA}}"
 
-  # 커스텀 프롬프트 디렉터리 적용
+  # Apply custom prompts directory
   if [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]]; then
     local custom_abs="$CUSTOM_PROMPTS_DIR"
     [[ "${CUSTOM_PROMPTS_DIR}" != /* ]] && custom_abs="$ROOT_DIR/$CUSTOM_PROMPTS_DIR"
@@ -397,9 +397,9 @@ load_config() {
   fi
 }
 
-# ── 커스텀 프롬프트 생성 ───────────────────────────────────────────────────────
+# ── Custom prompt generation ───────────────────────────────────────────────────
 
-# AI CLI를 감지해 반환 (copilot 우선, 없으면 claude)
+# Detect AI CLI and return its name (copilot first, then claude)
 _detect_ai_cli() {
   if command -v copilot &>/dev/null; then echo "copilot"
   elif command -v claude &>/dev/null; then echo "claude"
@@ -407,7 +407,7 @@ _detect_ai_cli() {
   fi
 }
 
-# AI CLI로 단일 프롬프트 생성
+# Generate a single prompt using the AI CLI
 _ai_generate() {
   local ai_cmd="$1" prompt_text="$2" out_file="$3"
   case "$ai_cmd" in
@@ -416,7 +416,7 @@ _ai_generate() {
   esac
 }
 
-# 에이전트별 지침 + Git 지침을 바탕으로 커스텀 프롬프트 파일 생성
+# Generate custom prompt files based on per-agent instructions + Git guidelines
 _generate_custom_prompts() {
   local hint_planner="$1" hint_generator="$2" hint_evaluator="$3" git_guide="$4"
   local custom_dir="$ROOT_DIR/.harness/prompts"
@@ -430,7 +430,7 @@ _generate_custom_prompts() {
     local base="$PROMPTS_DIR/${role}.md"
     local out="$custom_dir/${role}.md"
 
-    # 역할별 힌트 선택
+    # Select role-specific hint
     local hint=""
     case "$role" in
       planner)   hint="$hint_planner" ;;
@@ -438,14 +438,14 @@ _generate_custom_prompts() {
       evaluator) hint="$hint_evaluator" ;;
     esac
 
-    # 추가 지침 조합
+    # Combine additional instructions
     local extra=""
     [[ -n "$git_guide" ]] && extra="${extra}
-**Git 워크플로우 지침**: ${git_guide}"
+**Git workflow guidelines**: ${git_guide}"
     [[ -n "$hint"      ]] && extra="${extra}
-**특별 지침**: ${hint}"
+**Special instructions**: ${hint}"
 
-    # 지침 없으면 기본 프롬프트 복사
+    # No instructions — copy base prompt
     if [[ -z "$extra" ]]; then
       cp "$base" "$out"
       continue
@@ -453,154 +453,154 @@ _generate_custom_prompts() {
 
     local role_kr
     case "$role" in
-      planner)   role_kr="기획자" ;;
-      generator) role_kr="개발자" ;;
-      evaluator) role_kr="평가자" ;;
+      planner)   role_kr="Planner" ;;
+      generator) role_kr="Generator" ;;
+      evaluator) role_kr="Evaluator" ;;
     esac
 
-    log_info "${role_kr} 프롬프트 생성 중..."
+    log_info "Generating ${role_kr} prompt..."
 
     if [[ -n "$ai_cmd" ]]; then
       local gen_prompt
-      gen_prompt="아래는 ${role_kr} 에이전트의 기본 프롬프트입니다.
+      gen_prompt="Below is the base prompt for the ${role_kr} agent.
 
 $(cat "$base")
 
 ---
 
-다음 지침을 프롬프트에 자연스럽게 통합하여 수정된 프롬프트 전체를 출력하세요.
-마크다운 코드블록(\`\`\`) 없이 프롬프트 내용만 출력하세요.
+Naturally integrate the following instructions into the prompt and output the entire revised prompt.
+Output only the prompt content — no markdown code blocks (\`\`\`).
 
-추가할 지침:
+Instructions to add:
 ${extra}"
 
       if _ai_generate "$ai_cmd" "$gen_prompt" "$out"; then
-        log_ok "${role_kr} 프롬프트 생성됨: ${W}$out${N}"
+        log_ok "${role_kr} prompt generated: ${W}$out${N}"
       else
-        log_warn "${role_kr} 프롬프트 생성 실패 — 기본 프롬프트에 지침 추가"
+        log_warn "${role_kr} prompt generation failed — adding instructions to base prompt"
         cp "$base" "$out"
-        printf "\n\n## 추가 지침\n%s\n" "$extra" >> "$out"
+        printf "\n\n## Additional instructions\n%s\n" "$extra" >> "$out"
       fi
     else
-      # AI CLI 없으면 기본 프롬프트 뒤에 지침 직접 추가
+      # No AI CLI — append instructions directly to base prompt
       cp "$base" "$out"
-      printf "\n\n## 추가 지침\n%s\n" "$extra" >> "$out"
-      log_ok "${role_kr} 프롬프트 생성됨 (수동 추가): ${W}$out${N}"
+      printf "\n\n## Additional instructions\n%s\n" "$extra" >> "$out"
+      log_ok "${role_kr} prompt generated (manual): ${W}$out${N}"
     fi
   done
 }
 
-# ── 초기화 마법사 ──────────────────────────────────────────────────────────────
+# ── Initialization wizard ──────────────────────────────────────────────────────
 
 cmd_init() {
   echo -e "\n${W}══════════════════════════════════════════${N}"
-  echo -e "${W}  harn 초기 설정${N}"
+  echo -e "${W}  harn initial setup${N}"
   echo -e "${W}══════════════════════════════════════════${N}"
-  echo -e "프로젝트 루트: ${W}$ROOT_DIR${N}"
-  echo -e "설정 파일:     ${W}$CONFIG_FILE${N}\n"
+  echo -e "Project root: ${W}$ROOT_DIR${N}"
+  echo -e "Config file:  ${W}$CONFIG_FILE${N}\n"
 
   if [[ -f "$CONFIG_FILE" ]]; then
-    printf "${Y}이미 설정 파일이 존재합니다. 덮어쓰시겠습니까? [y/N]: ${N}"
+    printf "${Y}Config file already exists. Overwrite? [y/N]: ${N}"
     local ow; ow=$(_input_readline)
     echo ""
-    [[ "$ow" == "y" || "$ow" == "Y" ]] || { log_info "초기화 취소됨"; return 0; }
+    [[ "$ow" == "y" || "$ow" == "Y" ]] || { log_info "Initialization cancelled"; return 0; }
   fi
 
-  # ── 프로젝트 기본 설정 ───────────────────────────────────────────────────────
+  # ── Project basic settings ───────────────────────────────────────────────────
   local bf_default="docs/planner/sprint-backlog.md"
-  printf "백로그 파일 경로 (프로젝트 루트 기준) [%s]: " "$bf_default"
+  printf "Backlog file path (relative to project root) [%s]: " "$bf_default"
   local bf_input; bf_input=$(_input_readline); echo ""
   local bf="${bf_input:-$bf_default}"
 
-  printf "QA 최대 재시도 횟수 [5]: "
+  printf "Max QA retry count [5]: "
   local mi_input; mi_input=$(_input_readline); echo ""
   local mi="${mi_input:-5}"
 
-  # ── AI 모델 설정 ─────────────────────────────────────────────────────────────
-  echo -e "\n${W}AI 모델 설정${N} (엔터 = 기본값 사용)"
-  printf "기획자 모델       [claude-haiku-4.5]: "
+  # ── AI model settings ─────────────────────────────────────────────────────────
+  echo -e "\n${W}AI model settings${N} (Enter = use default)"
+  printf "Planner model         [claude-haiku-4.5]: "
   local mp; mp=$(_input_readline); echo ""; mp="${mp:-claude-haiku-4.5}"
 
-  printf "개발자 모델(협의) [claude-sonnet-4.6]: "
+  printf "Generator model (contract) [claude-sonnet-4.6]: "
   local mgc; mgc=$(_input_readline); echo ""; mgc="${mgc:-claude-sonnet-4.6}"
 
-  printf "개발자 모델(구현) [claude-opus-4.6]: "
+  printf "Generator model (impl) [claude-opus-4.6]: "
   local mgi; mgi=$(_input_readline); echo ""; mgi="${mgi:-claude-opus-4.6}"
 
-  printf "평가자 모델(협의) [claude-haiku-4.5]: "
+  printf "Evaluator model (contract) [claude-haiku-4.5]: "
   local mec; mec=$(_input_readline); echo ""; mec="${mec:-claude-haiku-4.5}"
 
-  printf "평가자 모델(QA)   [claude-sonnet-4.5]: "
+  printf "Evaluator model (QA)  [claude-sonnet-4.5]: "
   local meq; meq=$(_input_readline); echo ""; meq="${meq:-claude-sonnet-4.5}"
 
-  # ── Git 통합 ─────────────────────────────────────────────────────────────────
-  echo -e "\n${W}Git 통합${N}"
-  printf "Git 통합 활성화? [y/N]: "
+  # ── Git integration ─────────────────────────────────────────────────────────────
+  echo -e "\n${W}Git integration${N}"
+  printf "Enable Git integration? [y/N]: "
   local git_yn; git_yn=$(_input_readline); echo ""
   local git_en="false"
   local git_branch="main" git_upstream_remote="upstream" git_auto_push="false" git_auto_pr="false" git_pr_draft="true" git_guide=""
 
   if [[ "$git_yn" == "y" || "$git_yn" == "Y" ]]; then
     git_en="true"
-    printf "베이스 브랜치 [main]: "
+    printf "Base branch [main]: "
     local gb; gb=$(_input_readline); echo ""; git_branch="${gb:-main}"
 
-    printf "Upstream 리모트 이름 [upstream]: "
+    printf "Upstream remote name [upstream]: "
     local gur; gur=$(_input_readline); echo ""; git_upstream_remote="${gur:-upstream}"
 
-    printf "자동 Push? [y/N]: "
+    printf "Auto push? [y/N]: "
     local gp; gp=$(_input_readline); echo ""
     [[ "$gp" == "y" || "$gp" == "Y" ]] && git_auto_push="true"
 
-    printf "자동 PR 생성? [y/N]: "
+    printf "Auto PR creation? [y/N]: "
     local gpr; gpr=$(_input_readline); echo ""
     [[ "$gpr" == "y" || "$gpr" == "Y" ]] && git_auto_pr="true"
 
     if [[ "$git_auto_pr" == "true" ]]; then
-      printf "PR을 Draft로 생성? [Y/n]: "
+      printf "Create PR as Draft? [Y/n]: "
       local gprd; gprd=$(_input_readline); echo ""
       [[ "$gprd" == "n" || "$gprd" == "N" ]] && git_pr_draft="false"
     fi
 
-    echo -e "\n${B}Git 워크플로우 지침${N}"
-    echo -e "  브랜치 전략, 커밋 컨벤션, PR 규칙 등을 자유롭게 입력하세요."
-    echo -e "  이 지침은 모든 에이전트 프롬프트에 반영됩니다. (엔터 = 없음)"
+    echo -e "\n${B}Git workflow guidelines${N}"
+    echo -e "  Enter branching strategy, commit conventions, PR rules, etc."
+    echo -e "  These guidelines will be reflected in all agent prompts. (Enter = skip)"
     printf "> "
     git_guide=$(_input_readline); echo ""
   fi
 
-  # ── 에이전트별 특별 지침 ──────────────────────────────────────────────────────
-  echo -e "\n${W}에이전트별 특별 지침${N}"
-  echo -e "  프로젝트 아키텍처, 기술 스택, 코딩 규칙 등을 입력하세요."
-  echo -e "  입력한 지침은 AI CLI가 기본 프롬프트에 자연스럽게 통합합니다. (엔터 = 없음)\n"
+  # ── Per-agent special instructions ──────────────────────────────────────────
+  echo -e "\n${W}Per-agent special instructions${N}"
+  echo -e "  Enter project architecture, tech stack, coding conventions, etc."
+  echo -e "  The AI CLI will naturally integrate these into the base prompts. (Enter = skip)\n"
 
-  printf "기획자(Planner)   — 스펙/스프린트 계획 관련 지침: "
+  printf "Planner   — spec/sprint planning instructions: "
   local hint_planner; hint_planner=$(_input_readline); echo ""
 
-  printf "개발자(Generator) — 구현 관련 지침: "
+  printf "Generator — implementation instructions: "
   local hint_generator; hint_generator=$(_input_readline); echo ""
 
-  printf "평가자(Evaluator) — QA/검증 관련 지침: "
+  printf "Evaluator — QA/evaluation instructions: "
   local hint_evaluator; hint_evaluator=$(_input_readline); echo ""
 
-  # ── 설정 파일 작성 ───────────────────────────────────────────────────────────
+  # ── Write config file ───────────────────────────────────────────────────────
   local cpd=""
   cat > "$CONFIG_FILE" <<CFGEOF
-# harn 설정 파일 — $(date '+%Y-%m-%d %H:%M:%S')
-# 프로젝트: $ROOT_DIR
+# harn config file — $(date '+%Y-%m-%d %H:%M:%S')
+# project: $ROOT_DIR
 
-# === 프로젝트 설정 ===
+# === Project settings ===
 BACKLOG_FILE="${bf}"
 MAX_ITERATIONS=${mi}
 
-# === AI 모델 설정 ===
+# === AI model settings ===
 MODEL_PLANNER="${mp}"
 MODEL_GENERATOR_CONTRACT="${mgc}"
 MODEL_GENERATOR_IMPL="${mgi}"
 MODEL_EVALUATOR_CONTRACT="${mec}"
 MODEL_EVALUATOR_QA="${meq}"
 
-# === Git 통합 ===
+# === Git integration ===
 GIT_ENABLED="${git_en}"
 GIT_BASE_BRANCH="${git_branch}"
 GIT_UPSTREAM_REMOTE="${git_upstream_remote}"
@@ -611,46 +611,46 @@ GIT_AUTO_PR="${git_auto_pr}"
 GIT_PR_DRAFT="${git_pr_draft}"
 GIT_AUTO_MERGE="false"
 
-# === 에이전트 지침 (harn init 으로 재생성 가능) ===
+# === Agent instructions (regenerate with harn init) ===
 GIT_GUIDE="${git_guide}"
 HINT_PLANNER="${hint_planner}"
 HINT_GENERATOR="${hint_generator}"
 HINT_EVALUATOR="${hint_evaluator}"
 
-# === 커스텀 프롬프트 ===
+# === Custom prompts ===
 CUSTOM_PROMPTS_DIR="${cpd}"
 CFGEOF
 
-  log_ok "설정 파일 생성됨: ${W}$CONFIG_FILE${N}"
+  log_ok "Config file created: ${W}$CONFIG_FILE${N}"
 
-  # ── 커스텀 프롬프트 생성 ──────────────────────────────────────────────────────
+  # ── Custom prompt generation ──────────────────────────────────────────────────
   if [[ -n "$hint_planner" || -n "$hint_generator" || -n "$hint_evaluator" || -n "$git_guide" ]]; then
     echo ""
     local ai_cmd; ai_cmd=$(_detect_ai_cli)
     if [[ -n "$ai_cmd" ]]; then
-      log_info "AI CLI(${W}${ai_cmd}${N})로 커스텀 프롬프트를 생성합니다..."
+      log_info "Generating custom prompts with AI CLI(${W}${ai_cmd}${N})..."
     else
-      log_warn "AI CLI를 찾을 수 없어 기본 프롬프트에 지침을 직접 추가합니다."
+      log_warn "AI CLI not found — adding instructions directly to base prompts."
     fi
     _generate_custom_prompts "$hint_planner" "$hint_generator" "$hint_evaluator" "$git_guide"
     cpd=".harness/prompts"
-    # config에 CUSTOM_PROMPTS_DIR 업데이트
+    # Update CUSTOM_PROMPTS_DIR in config
     sed -i '' "s|^CUSTOM_PROMPTS_DIR=.*|CUSTOM_PROMPTS_DIR=\"${cpd}\"|" "$CONFIG_FILE"
   fi
 
-  # 방금 생성한 config 로드
+  # Load the newly created config
   load_config
 
   echo ""
-  log_ok "초기화 완료!"
-  echo -e "  ${W}harn backlog${N}  — 백로그 항목 확인"
-  echo -e "  ${W}harn start${N}    — 루프 시작"
+  log_ok "Initialization complete!"
+  echo -e "  ${W}harn backlog${N}  — view backlog items"
+  echo -e "  ${W}harn start${N}    — start the loop"
   echo ""
 }
 
-# ── 백로그 헬퍼 ───────────────────────────────────────────────────────────────
+# ── Backlog helpers ───────────────────────────────────────────────────────────
 
-# 대기 중인 항목 slug 목록 (진행 중 → 대기 순)
+# Pending item slug list (in-progress → pending order)
 backlog_pending_slugs() {
   [[ ! -f "$BACKLOG_FILE" ]] && return
   python3 - "$BACKLOG_FILE" <<'EOF'
@@ -674,10 +674,10 @@ for slug in in_progress + pending:
 EOF
 }
 
-# slug에 해당하는 전체 설명 블록 반환
+# Return the full description block for a given slug
 backlog_item_text() {
   local slug="$1"
-  [[ ! -f "$BACKLOG_FILE" ]] && echo "(백로그를 찾을 수 없음)" && return
+  [[ ! -f "$BACKLOG_FILE" ]] && echo "(backlog not found)" && return
   python3 - "$BACKLOG_FILE" "$slug" <<'EOF'
 import re, sys
 
@@ -689,24 +689,24 @@ match = re.search(pattern, content)
 if match:
     print(match.group(1).strip())
 else:
-    print(f'(백로그에서 "{slug}" 항목을 찾을 수 없음)')
+    print(f'(item "{slug}" not found in backlog)')
 EOF
 }
 
-# 다음 항목 선택: 진행 중 → 대기 순
+# Select next item: in-progress → pending order
 backlog_next_slug() {
   backlog_pending_slugs | head -1
 }
 
-# 백로그 항목을 완료 처리 [x]
+# Mark backlog item as done [x]
 backlog_mark_done() {
   local slug="$1"
   [[ ! -f "$BACKLOG_FILE" ]] && return
   sed -i '' "s/- \[ \] \*\*${slug}\*\*/- [x] **${slug}**/" "$BACKLOG_FILE"
-  log_ok "백로그: ${W}$slug${N} 완료 처리됨"
+  log_ok "Backlog: ${W}$slug${N} marked as done"
 }
 
-# 선택된 백로그 항목에 plan 라인을 upsert (In Progress 항목 우선)
+# Upsert plan line for selected backlog item (In Progress items take priority)
 backlog_upsert_plan_line() {
   local slug="$1"
   local plan_text="$2"
@@ -792,7 +792,7 @@ print('UPDATED')
 PYEOF
 }
 
-# ── 실행 관리 ──────────────────────────────────────────────────────────────────
+# ── Run management ──────────────────────────────────────────────────────────────
 mkdir -p "$HARNESS_DIR/runs"
 
 current_run_id() {
@@ -802,11 +802,11 @@ current_run_id() {
 require_run_dir() {
   local id
   id=$(current_run_id)
-  [[ -z "$id" ]] && { log_err "활성 실행 없음. 사용: harn start"; exit 1; }
+  [[ -z "$id" ]] && { log_err "No active run. Use: harn start"; exit 1; }
   echo "$HARNESS_DIR/runs/$id"
 }
 
-# LOG_FILE을 서브셸이 아닌 현재 셸에서 직접 호출해야 함
+# Must be called in the current shell, not a subshell
 sync_run_log() {
   local id
   id=$(current_run_id)
@@ -843,16 +843,16 @@ count_sprints_in_backlog() {
   echo "$count"
 }
 
-# ── 실시간 마크다운 컬러 렌더러 ───────────────────────────────────────────────
-# 파이프 stdin → md_stream.py → 컬러 렌더링 stdout
-# 로그 파일엔 ANSI 코드 없이 저장, 터미널엔 컬러로 출력
+# ── Real-time markdown color renderer ─────────────────────────────────────────
+# Pipe stdin → md_stream.py → colored rendering stdout
+# Saved to log file without ANSI codes, displayed with color in terminal
 _md_stream() {
   python3 -u "$SCRIPT_DIR/parser/md_stream.py"
 }
 
-# ── 에이전트 호출 ──────────────────────────────────────────────────────────────
+# ── Agent invocation ──────────────────────────────────────────────────────────
 invoke_copilot() {
-  local prompt_input="$1" output_file="$2" role="${3:-구현 중...}" prompt_mode="${4:-file}" copilot_model="${5:-}" copilot_effort="${6:-}"
+  local prompt_input="$1" output_file="$2" role="${3:-implementing...}" prompt_mode="${4:-file}" copilot_model="${5:-}" copilot_effort="${6:-}"
   local prompt_text="$prompt_input"
   if [[ "$prompt_mode" == "file" ]]; then
     prompt_text="$(cat "$prompt_input")"
@@ -860,7 +860,7 @@ invoke_copilot() {
 
   local copilot_label="copilot"
   [[ -n "$copilot_model" ]] && copilot_label="copilot ($copilot_model)"
-  log_agent_start "$copilot_label" "$role" "출력 → $(basename "$output_file")"
+  log_agent_start "$copilot_label" "$role" "output → $(basename "$output_file")"
 
   local -a copilot_cmd=(copilot --add-dir "$ROOT_DIR" --yolo -p "$prompt_text")
   [[ -n "$copilot_effort" ]] && copilot_cmd+=(--effort "$copilot_effort")
@@ -869,9 +869,9 @@ invoke_copilot() {
     if copilot_supports_model_flag; then
       copilot_cmd+=(--model "$copilot_model")
     else
-      # 구버전 CLI 폴백: COPILOT_MODEL 환경변수로 모델 지정
+      # Old CLI fallback: specify model via COPILOT_MODEL env var
       use_env_model_fallback="true"
-      log_warn "copilot --model 미지원으로 COPILOT_MODEL 폴백 사용: $copilot_model"
+      log_warn "copilot --model not supported, using COPILOT_MODEL fallback: $copilot_model"
     fi
   fi
 
@@ -889,7 +889,7 @@ invoke_copilot() {
   fi
 
   if [[ $exit_code -ne 0 ]]; then
-    log_warn "copilot 이 비정상 종료됨 (exit $exit_code) — 출력: $(basename "$output_file")"
+    log_warn "copilot exited abnormally (exit $exit_code) — output: $(basename "$output_file")"
   fi
   log_agent_done "$copilot_label"
   return $exit_code
@@ -902,15 +902,15 @@ invoke_role() {
   invoke_copilot "$prompt_input" "$output_file" "$role_label" "$prompt_mode" "$copilot_model" "$copilot_effort"
 }
 
-# ── 커맨드 ─────────────────────────────────────────────────────────────────────
+# ── Commands ───────────────────────────────────────────────────────────────────
 
 cmd_backlog() {
-  [[ ! -f "$BACKLOG_FILE" ]] && { log_err "백로그를 찾을 수 없음: $BACKLOG_FILE"; exit 1; }
-  echo -e "${W}대기 중인 백로그 항목:${N}"
+  [[ ! -f "$BACKLOG_FILE" ]] && { log_err "Backlog not found: $BACKLOG_FILE"; exit 1; }
+  echo -e "${W}Pending backlog items:${N}"
   local slugs
   slugs=$(backlog_pending_slugs)
   if [[ -z "$slugs" ]]; then
-    echo "  (없음 — 모두 완료!)"
+    echo "  (none — all done!)"
     return
   fi
   local i=1
@@ -932,7 +932,7 @@ EOF
     i=$(( i + 1 ))
   done <<< "$slugs"
   echo ""
-  echo -e "실행: ${W}harn start${N} — 백로그 항목 선택 후 전체 루프 실행"
+  echo -e "Run: ${W}harn start${N} — select a backlog item and run the full loop"
 }
 
 cmd_start() {
@@ -940,22 +940,22 @@ cmd_start() {
   local max_sprints="${2:-10}"
   local max_sprints_arg="${2:-}"
 
-  # 인수 없으면 백로그 목록 보여주고 번호 입력받기
+  # No argument — show backlog list and prompt for a number
   if [[ -z "$slug_or_prompt" ]]; then
     if [[ ! -f "$BACKLOG_FILE" ]]; then
-      log_err "백로그 파일을 찾을 수 없습니다: $BACKLOG_FILE"
+      log_err "Backlog file not found: $BACKLOG_FILE"
       exit 1
     fi
 
     local slugs
     slugs=$(backlog_pending_slugs)
     if [[ -z "$slugs" ]]; then
-      log_warn "백로그에 대기 중인 항목이 없습니다. 항목을 먼저 추가하세요."
-      log_info "발굴하려면: harn discover"
+      log_warn "No pending items in backlog. Add an item first."
+      log_info "To discover items: harn discover"
       exit 1
     fi
 
-    echo -e "\n${W}백로그 항목 선택${N}"
+    echo -e "\n${W}Select backlog item${N}"
     echo -e "${B}──────────────────────────────${N}"
     local i=1
     local slug_array=()
@@ -965,16 +965,16 @@ cmd_start() {
       i=$(( i + 1 ))
     done <<< "$slugs"
     echo ""
-    printf "번호 입력 (1–${#slug_array[@]}): "
+    printf "Enter number (1–${#slug_array[@]}): "
     local choice; choice=$(_input_readline); echo ""
 
     if [[ "$choice" =~ ^[0-9]+$ ]] && \
        [[ "$choice" -ge 1 ]] && \
        [[ "$choice" -le "${#slug_array[@]}" ]]; then
       slug_or_prompt="${slug_array[$(( choice - 1 ))]}"
-      log_info "선택됨: ${W}$slug_or_prompt${N}"
+      log_info "Selected: ${W}$slug_or_prompt${N}"
     else
-      log_err "잘못된 입력: $choice"
+      log_err "Invalid input: $choice"
       exit 1
     fi
   fi
@@ -987,31 +987,31 @@ cmd_start() {
   echo "$slug_or_prompt" > "$run_dir/prompt.txt"
   echo "1" > "$run_dir/current_sprint"
 
-  # 이번 실행 전용 로그 (current.log → 이번 실행 로그로 심볼릭 링크)
+  # This run's dedicated log (current.log → symlink to this run's log)
   local run_log="$run_dir/run.log"
   ln -sfn "$run_log" "$HARNESS_DIR/current.log"
   LOG_FILE="$run_log"
 
   {
     echo "════════════════════════════════════════════════════════════"
-    echo "  Servan Sprint Harness"
-    echo "  실행 ID  : $run_id"
-    echo "  항목     : $slug_or_prompt"
-    echo "  시작     : $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "  harn Sprint Harness"
+    echo "  Run ID   : $run_id"
+    echo "  Item     : $slug_or_prompt"
+    echo "  Started  : $(date '+%Y-%m-%d %H:%M:%S')"
     echo "════════════════════════════════════════════════════════════"
   } | tee -a "$LOG_FILE"
 
   ln -sfn "$run_dir" "$HARNESS_DIR/current"
-  log_ok "실행 생성됨: $run_id  (${W}$slug_or_prompt${N})"
-  log_info "로그 실시간 확인: ${W}harn tail${N}  →  $run_log"
+  log_ok "Run created: $run_id  (${W}$slug_or_prompt${N})"
+  log_info "View live log: ${W}harn tail${N}  →  $run_log"
 
   if ! cmd_plan; then
-    log_err "초기 기획 단계에서 실패했습니다. 로그를 확인한 뒤 재시도하세요: $run_log"
+    log_err "Failed at initial planning stage. Check the log and retry: $run_log"
     return 1
   fi
 
-  # start 인자로 최대 스프린트를 주지 않았다면, 백로그 기준으로 자동 계산해
-  # '시작부터 완료까지' 한 번에 진행되도록 기본값을 보정한다.
+  # If max sprints not specified as start argument, auto-calculate from backlog
+  # to proceed from start to finish in one go.
   if [[ -z "$max_sprints_arg" ]]; then
     local planned_total
     planned_total=$(count_sprints_in_backlog "$run_dir/sprint-backlog.md")
@@ -1020,18 +1020,18 @@ cmd_start() {
     fi
   fi
 
-  log_step "자동 실행 시작"
-  log_info "초기화가 완료되어 스프린트 루프를 자동으로 실행합니다 (contract → implement → evaluate → next, 최대 ${max_sprints} 스프린트)."
+  log_step "Starting automated run"
+  log_info "Initialization complete. Running sprint loop automatically (contract → implement → evaluate → next, up to ${max_sprints} sprints)."
 
   if ! _run_sprint_loop "$max_sprints"; then
-    log_err "자동 스프린트 루프가 중단되었습니다. 실패 지점을 확인한 뒤 'harn resume $(basename "$run_dir")'로 재개하세요."
+    log_err "Automated sprint loop was interrupted. Check the failure point and resume with 'harn resume $(basename "$run_dir")'."
     return 1
   fi
 
   if [[ -f "$run_dir/completed" ]]; then
-    log_ok "harn start 전체 자동 실행 완료"
+    log_ok "harn start full automated run complete"
   else
-    log_warn "최대 스프린트 수(${max_sprints})에 도달해 자동 실행을 종료했습니다. 계속하려면 'harn start'를 실행하세요."
+    log_warn "Reached max sprint count (${max_sprints}). Automated run ended. Run 'harn start' to continue."
   fi
 }
 
@@ -1041,24 +1041,24 @@ cmd_plan() {
   local slug_or_prompt
   slug_or_prompt=$(cat "$run_dir/prompt.txt")
 
-  log_step "기획 단계"
+  log_step "Planning phase"
 
   local context_block
   if [[ -f "$BACKLOG_FILE" ]] && [[ "$slug_or_prompt" != *" "* ]]; then
     local item_text
     item_text=$(backlog_item_text "$slug_or_prompt")
-    context_block="## 백로그 항목
+    context_block="## Backlog Item
 
 \`\`\`
 $item_text
 \`\`\`
 
-## 전체 백로그 (참고용)
+## Full Backlog (for reference)
 
 $(cat "$BACKLOG_FILE")
 "
   else
-    context_block="## 요청 내용
+    context_block="## Request
 
 $slug_or_prompt"
   fi
@@ -1072,21 +1072,21 @@ $context_block
 
 ---
 
-## 출력 지침
+## Output Instructions
 
-아래 세 섹션 마커를 정확히 사용하여 출력하세요:
+Use the following section markers exactly in your output:
 
 === plan.text ===
-[한 줄 계획 텍스트. 마크다운 없이 평문으로 작성]
+[One-line plan text. Plain text, no markdown]
 
 === spec.md ===
-[제품 스펙 내용]
+[Product spec content]
 
 === sprint-backlog.md ===
-[스프린트 백로그 내용]"
+[Sprint backlog content]"
 
   local raw="$run_dir/plan-raw.md"
-  invoke_role "planner" "$prompt" "$raw" "기획자 — 백로그 항목을 스프린트 스펙으로 확장" "inline" "$COPILOT_MODEL_PLANNER"
+  invoke_role "planner" "$prompt" "$raw" "Planner — expand backlog item into sprint spec" "inline" "$COPILOT_MODEL_PLANNER"
 
   awk '/^=== plan\.text ===$/{f=1;next} /^=== spec\.md ===$/{f=0} f{print}' "$raw" \
     > "$run_dir/plan.txt"
@@ -1108,41 +1108,41 @@ PYEOF
 )
   if [[ -z "$plan_text" ]]; then
     plan_text="$slug_or_prompt"
-    log_warn "plan.text를 찾지 못해 slug/prompt를 plan 텍스트로 대체합니다"
+    log_warn "plan.text not found — using slug/prompt as plan text"
   fi
   echo "$plan_text" > "$run_dir/plan.txt"
 
   if [[ ! -s "$run_dir/spec.md" ]]; then
     cp "$raw" "$run_dir/spec.md"
-    log_warn "섹션 마커를 찾을 수 없음 — 전체 출력을 spec.md로 저장"
+    log_warn "Section markers not found — saving full output as spec.md"
   fi
 
-  log_ok "스펙 → $run_dir/spec.md"
-  log_ok "스프린트 백로그 → $run_dir/sprint-backlog.md"
-  log_ok "플랜 텍스트 → $run_dir/plan.txt"
+  log_ok "Spec → $run_dir/spec.md"
+  log_ok "Sprint backlog → $run_dir/sprint-backlog.md"
+  log_ok "Plan text → $run_dir/plan.txt"
 
-  # 기획 완료 → 백로그 항목 Pending → In Progress 이동
+  # Planning done → move backlog item from Pending → In Progress
   if [[ -f "$BACKLOG_FILE" ]] && [[ "$slug_or_prompt" != *" "* ]]; then
     python3 - "$BACKLOG_FILE" "$slug_or_prompt" <<'PYEOF'
 import re, sys
 path, slug = sys.argv[1], sys.argv[2]
 content = open(path).read()
 
-# Pending 섹션에서 In Progress 섹션으로 이동
+# Move from Pending to In Progress section
 item_pattern = re.compile(
     r'(- \[ \] \*\*' + re.escape(slug) + r'\*\*[^\n]*(?:\n[ \t]+[^\n]*)*)',
     re.MULTILINE
 )
 match = item_pattern.search(content)
 if not match:
-    print(f'항목을 찾을 수 없음: {slug}')
+    print(f'Item not found: {slug}')
     sys.exit(0)
 
 item_text = match.group(1)
-# 원래 위치에서 제거
+# Remove from original location
 content = content[:match.start()] + content[match.end():]
 
-# In Progress 섹션 아래에 추가 (없으면 생성)
+# Add under In Progress section (create if missing)
 if '## In Progress' in content:
     content = content.replace('## In Progress\n', '## In Progress\n' + item_text + '\n')
 else:
@@ -1151,26 +1151,26 @@ else:
 open(path, 'w').write(content)
 print(f'✓ {slug} → In Progress')
 PYEOF
-    log_ok "백로그: ${W}$slug_or_prompt${N} → In Progress"
+    log_ok "Backlog: ${W}$slug_or_prompt${N} → In Progress"
 
     if backlog_upsert_plan_line "$slug_or_prompt" "$plan_text"; then
-      log_ok "백로그 plan 라인 업데이트: ${W}$slug_or_prompt${N}"
+      log_ok "Backlog plan line updated: ${W}$slug_or_prompt${N}"
     else
       case "$?" in
-        2) log_warn "백로그 plan 업데이트 실패: slug를 찾지 못함 (${W}$slug_or_prompt${N})" ;;
-        3) log_info "백로그 plan 라인 변경 없음 (이미 최신)" ;;
-        *) log_warn "백로그 plan 업데이트 중 예외 발생 (slug=${W}$slug_or_prompt${N})" ;;
+        2) log_warn "Backlog plan update failed: slug not found (${W}$slug_or_prompt${N})" ;;
+        3) log_info "Backlog plan line unchanged (already up to date)" ;;
+        *) log_warn "Exception during backlog plan update (slug=${W}$slug_or_prompt${N})" ;;
       esac
     fi
 
   fi
 
-  # Git 브랜치 생성, 백로그 커밋, Draft PR 생성
+  # Create Git branch, commit backlog, create Draft PR
   if [[ -f "$BACKLOG_FILE" ]] && [[ "$slug_or_prompt" != *" "* ]]; then
     _git_setup_plan_branch "$slug_or_prompt" "$run_dir" "$plan_text"
   fi
 
-  log_ok "기획 완료"
+  log_ok "Planning complete"
 }
 
 cmd_contract() {
@@ -1182,19 +1182,19 @@ cmd_contract() {
   sprint=$(sprint_dir "$run_dir" "$sprint_num")
 
   [[ -f "$sprint/contract.md" ]] && {
-    log_warn "스코프이 이미 존재합니다. 재작성하려면 $sprint/contract.md 를 삭제하세요."
+    log_warn "Scope already exists. Delete $sprint/contract.md to recreate it."
     return 0
   }
 
-  log_step "스프린트 $sprint_num — 스코프 협의"
+  log_step "Sprint $sprint_num — scope negotiation"
 
   local prev_context=""
   for s in "$run_dir/sprints"/*/; do
     [[ "$s" == "$sprint"/ ]] && continue
     [[ -d "$s" ]] || continue
     local sn; sn=$(basename "$s")
-    prev_context+="### 스프린트 $sn
-$(cat "$s/handoff.md" 2>/dev/null || cat "$s/contract.md" 2>/dev/null || echo "(정보 없음)")
+    prev_context+="### Sprint $sn
+$(cat "$s/handoff.md" 2>/dev/null || cat "$s/contract.md" 2>/dev/null || echo "(no info)")
 
 "
   done
@@ -1205,80 +1205,80 @@ $(cat "$PROMPTS_DIR/generator.md")
 
 ---
 
-## 제품 스펙
+## Product Spec
 
 $(cat "$run_dir/spec.md")
 
-## 스프린트 백로그
+## Sprint Backlog
 
 $(cat "$run_dir/sprint-backlog.md" 2>/dev/null || echo "")
 
-## 이전 스프린트 컨텍스트
+## Previous Sprint Context
 
 $prev_context
 
 ---
 
-## 작업 지시
+## Task Instructions
 
-당신은 **개발자(Generator)**입니다. **스프린트 $sprint_num**에 대한 상세 스코프을 제안하세요.
+You are the **Generator (Developer)**. Propose a detailed scope for **Sprint $sprint_num**.
 
-포함 항목:
-1. **스프린트 목표** — 한 문장
-2. **구현할 기능** — 구체적인 산출물
-3. **PASS 기준** — 번호 매김, 구체적, 검증 가능
-4. **패키지/파일** — 생성 또는 수정할 항목
-5. **범위 외** — 명시적으로 제외되는 항목
+Include:
+1. **Sprint Goal** — one sentence
+2. **Features to implement** — concrete deliverables
+3. **PASS Criteria** — numbered, specific, verifiable
+4. **Packages/Files** — items to create or modify
+5. **Out of scope** — explicitly excluded items
 
-구체적으로 작성하세요. 평가자가 각 PASS 기준을 개별 검토합니다.
+Be specific. The evaluator will review each PASS criterion individually.
 EOF
 
-  # 사용자 추가 지시사항 주입
+  # Inject user extra instructions
   if [[ -n "$USER_EXTRA_INSTRUCTIONS" ]]; then
     printf "\n\n---\n%s\n" "$USER_EXTRA_INSTRUCTIONS" >> "$gen_prompt_file"
     USER_EXTRA_INSTRUCTIONS=""
   fi
 
-  invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal.md" "개발자 — 스프린트 $sprint_num 스코프 제안" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT"
+  invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal.md" "Generator — Sprint $sprint_num scope proposal" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT"
 
-  log_info "평가자가 스코프을 검토 중..."
+  log_info "Evaluator reviewing scope..."
   local eval_prompt
   eval_prompt="$(cat "$PROMPTS_DIR/evaluator.md")
 
 ---
 
-## 작업: 스프린트 스코프 검토
+## Task: Sprint Scope Review
 
-### 스프린트 $sprint_num 스코프 제안
+### Sprint $sprint_num Scope Proposal
 
 $(cat "$sprint/contract-proposal.md")
 
-**명확하고 검증 가능하면**: 독립 줄에 \`APPROVED\`를 쓰고 간단히 확인하세요.
-**수정이 필요하면**: 독립 줄에 \`NEEDS_REVISION\`을 쓰고 구체적인 수정 사항을 나열하세요."
+**If clear and verifiable**: write \`APPROVED\` on its own line with a brief confirmation.
+**If revision needed**: write \`NEEDS_REVISION\` on its own line and list specific revisions needed."
 
-  invoke_role "evaluator" "$eval_prompt" "$sprint/contract-review.md" "평가자 — 스프린트 $sprint_num 스코프 검토" "inline" "$COPILOT_MODEL_EVALUATOR_CONTRACT"
+  invoke_role "evaluator" "$eval_prompt" "$sprint/contract-review.md" "Evaluator — Sprint $sprint_num scope review" "inline" "$COPILOT_MODEL_EVALUATOR_CONTRACT"
 
   if grep -qi 'APPROVED' "$sprint/contract-review.md"; then
     cp "$sprint/contract-proposal.md" "$sprint/contract.md"
-    log_ok "스프린트 $sprint_num 스코프 승인됨"
+    log_ok "Sprint $sprint_num scope approved"
   else
-    log_warn "스코프 수정 필요 — 수정 중..."
+    log_warn "Scope needs revision — revising..."
     cat >> "$gen_prompt_file" <<EOF
 
 ---
 
-## 평가자 피드백
+## Evaluator Feedback
 
 $(cat "$sprint/contract-review.md")
 
-위 피드백을 반영하여 스코프을 수정해 주세요.
+Please revise the scope incorporating the above feedback.
 EOF
-    invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal-v2.md" "개발자 — 스프린트 $sprint_num 스코프 수정" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT"
+    invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal-v2.md" "Generator — Sprint $sprint_num scope revision" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT"
     cp "$sprint/contract-proposal-v2.md" "$sprint/contract.md"
-    log_ok "스프린트 $sprint_num 스코프 수정 완료"
+    log_ok "Sprint $sprint_num scope revision complete"
   fi
 
-  log_info "다음 단계: harn implement"
+  log_info "Next step: harn implement"
 }
 
 cmd_implement() {
@@ -1290,7 +1290,7 @@ cmd_implement() {
   sprint=$(sprint_dir "$run_dir" "$sprint_num")
 
   [[ ! -f "$sprint/contract.md" ]] && {
-    log_err "스프린트 $sprint_num 의 스코프이 없습니다. 실행: harn contract"
+    log_err "No scope for sprint $sprint_num. Run: harn contract"
     exit 1
   }
 
@@ -1298,23 +1298,23 @@ cmd_implement() {
   iteration=$(( $(sprint_iteration "$sprint") + 1 ))
   echo "$iteration" > "$sprint/iteration"
 
-  log_step "스프린트 $sprint_num — 개발 (반복 $iteration)"
+  log_step "Sprint $sprint_num — development (iteration $iteration)"
 
   local qa_feedback=""
   if [[ $iteration -gt 1 && -f "$sprint/qa-report.md" ]]; then
-    qa_feedback="## 평가자 피드백 (반복 $((iteration - 1)))
+    qa_feedback="## Evaluator Feedback (iteration $((iteration - 1)))
 
 $(cat "$sprint/qa-report.md")
 
-**위의 FAIL 기준을 모두 해결하세요.**"
+**Resolve all FAIL criteria listed above.**"
   fi
 
   local prev_handoff=""
   local prev_num=$(( sprint_num - 1 ))
   if [[ -d "$run_dir/sprints/$(printf '%03d' "$prev_num")" ]]; then
-    prev_handoff="## 이전 스프린트 인계서
+    prev_handoff="## Previous Sprint Handoff
 
-$(cat "$run_dir/sprints/$(printf '%03d' "$prev_num")/handoff.md" 2>/dev/null || echo "(없음)")"
+$(cat "$run_dir/sprints/$(printf '%03d' "$prev_num")/handoff.md" 2>/dev/null || echo "(none)")"
   fi
 
   local prompt_file="$sprint/gen-prompt-iter${iteration}.md"
@@ -1323,11 +1323,11 @@ $(cat "$PROMPTS_DIR/generator.md")
 
 ---
 
-## 제품 스펙
+## Product Spec
 
 $(cat "$run_dir/spec.md")
 
-## 스프린트 $sprint_num 스코프
+## Sprint $sprint_num Scope
 
 $(cat "$sprint/contract.md")
 
@@ -1337,18 +1337,18 @@ $qa_feedback
 
 ---
 
-## 작업 지시
+## Task Instructions
 
-위 스코프에 따라 **스프린트 $sprint_num**을 구현하세요.
-구현 완료 후 끝에 요약을 작성하세요:
+Implement **Sprint $sprint_num** according to the scope above.
+After implementation, write a summary at the end:
 
-=== 구현 요약 ===
-- 구현한 내용
-- 생성/수정한 주요 파일
-- 알려진 제약 사항
+=== Implementation Summary ===
+- What was implemented
+- Key files created/modified
+- Known constraints
 EOF
 
-  # 사용자 추가 지시사항 주입
+  # Inject user extra instructions
   if [[ -n "$USER_EXTRA_INSTRUCTIONS" ]]; then
     printf "\n\n---\n%s\n" "$USER_EXTRA_INSTRUCTIONS" >> "$prompt_file"
     USER_EXTRA_INSTRUCTIONS=""
@@ -1356,19 +1356,19 @@ EOF
 
   echo "in-progress" > "$sprint/status"
 
-  # 최초 구현: Opus (IMPL), QA FAIL 재시도: Sonnet (CONTRACT)
+  # First implementation: Opus (IMPL), QA FAIL retry: Sonnet (CONTRACT)
   local impl_model="$COPILOT_MODEL_GENERATOR_IMPL"
   [[ $iteration -gt 1 ]] && impl_model="$COPILOT_MODEL_GENERATOR_CONTRACT"
 
-  invoke_role "generator" "$prompt_file" "$sprint/implementation-iter${iteration}.md" "개발자 — 스프린트 $sprint_num 구현 (반복 $iteration)" "file" "$impl_model"
+  invoke_role "generator" "$prompt_file" "$sprint/implementation-iter${iteration}.md" "Generator — Sprint $sprint_num implementation (iteration $iteration)" "file" "$impl_model"
   cp "$sprint/implementation-iter${iteration}.md" "$sprint/implementation.md"
 
-  log_ok "스프린트 $sprint_num 구현 완료 (반복 $iteration)"
+  log_ok "Sprint $sprint_num implementation complete (iteration $iteration)"
 
-  # 구현 결과 Git 커밋
+  # Git commit implementation results
   _git_commit_sprint_impl "$sprint_num" "$sprint"
 
-  log_info "다음 단계: harn evaluate"
+  log_info "Next step: harn evaluate"
 }
 
 cmd_evaluate() {
@@ -1382,13 +1382,13 @@ cmd_evaluate() {
   iteration=$(sprint_iteration "$sprint")
 
   [[ ! -f "$sprint/implementation.md" ]] && {
-    log_err "스프린트 $sprint_num 의 구현 결과가 없습니다. 실행: harn implement"
+    log_err "No implementation for sprint $sprint_num. Run: harn implement"
     exit 1
   }
 
-  log_step "스프린트 $sprint_num — 검증 (반복 $iteration)"
+  log_step "Sprint $sprint_num — evaluation (iteration $iteration)"
 
-  log_info "자동 검사 실행 중..."
+  log_info "Running automated checks..."
   local test_results="$sprint/test-results.txt"
   {
     cd "$ROOT_DIR"
@@ -1397,37 +1397,37 @@ cmd_evaluate() {
     dart analyze 2>&1 | tail -30 || true
     echo ""
 
-    # 마지막 스프린트(테스트 스프린트)이면 서비스 기동 + E2E 검증 실행
+    # If last sprint (test sprint), start services + run E2E evaluation
     local total
     total=$(count_sprints_in_backlog "$run_dir/sprint-backlog.md")
     if [[ "$sprint_num" -eq "$total" ]]; then
 
-      echo "=== flutter test (단위/위젯 테스트) ==="
+      echo "=== flutter test (unit/widget tests) ==="
       flutter test --reporter compact 2>&1 | tail -50 || true
       echo ""
 
-      # ── 백엔드 서버 기동 ──────────────────────────────────────────
-      echo "=== 백엔드 서버 시작 (port 8080) ==="
+      # ── Start backend server ──────────────────────────────────────────
+      echo "=== Backend server starting (port 8080) ==="
       local backend_pid=""
       if [[ -f "$ROOT_DIR/services/backend/bin/main.dart" ]]; then
         PORT=8080 dart run "$ROOT_DIR/services/backend/bin/main.dart" \
           >> "$sprint/backend.log" 2>&1 &
         backend_pid=$!
-        echo "백엔드 PID: $backend_pid"
-        # 준비 대기 (최대 30초)
+        echo "Backend PID: $backend_pid"
+        # Wait for ready (up to 30 seconds)
         local i=0
         while [[ $i -lt 30 ]]; do
           curl -sf http://localhost:8080/health > /dev/null 2>&1 && break || true
           sleep 1; i=$(( i + 1 ))
         done
         curl -sf http://localhost:8080/health > /dev/null 2>&1 \
-          && echo "백엔드 준비 완료" \
-          || echo "백엔드 헬스체크 실패 — 로그: $sprint/backend.log"
+          && echo "Backend ready" \
+          || echo "Backend health check failed — log: $sprint/backend.log"
       fi
       echo ""
 
-      # ── MCP 서버 기동 (HTTP 모드) ─────────────────────────────────
-      echo "=== MCP 서버 시작 (port 8181) ==="
+      # ── Start MCP server (HTTP mode) ──────────────────────────────────
+      echo "=== MCP server starting (port 8181) ==="
       local mcp_pid=""
       if [[ -f "$ROOT_DIR/services/mcp/bin/server_http.dart" ]]; then
         PORT=8181 dart run "$ROOT_DIR/services/mcp/bin/server_http.dart" \
@@ -1435,12 +1435,12 @@ cmd_evaluate() {
         mcp_pid=$!
         echo "MCP PID: $mcp_pid"
         sleep 3
-        echo "MCP 서버 기동됨"
+        echo "MCP server started"
       fi
       echo ""
 
-      # ── Flutter 웹 앱 기동 ────────────────────────────────────────
-      echo "=== Flutter 웹 앱 시작 (port 3000) ==="
+      # ── Start Flutter web app ──────────────────────────────────────────
+      echo "=== Flutter web app starting (port 3000) ==="
       local flutter_pid=""
       local flutter_app_dir="$ROOT_DIR/apps/mobile"
       [[ -d "$ROOT_DIR/apps/web" ]] && flutter_app_dir="$ROOT_DIR/apps/web"
@@ -1450,20 +1450,20 @@ cmd_evaluate() {
         --dart-define=API_BASE_URL=http://localhost:8080 \
         >> "$sprint/flutter-web.log" 2>&1 &
       flutter_pid=$!
-      echo "Flutter 웹 PID: $flutter_pid"
-      # 준비 대기 (최대 120초)
+      echo "Flutter web PID: $flutter_pid"
+      # Wait for ready (up to 120 seconds)
       local j=0
       while [[ $j -lt 120 ]]; do
         curl -sf http://localhost:3000 > /dev/null 2>&1 && break || true
         sleep 1; j=$(( j + 1 ))
       done
       curl -sf http://localhost:3000 > /dev/null 2>&1 \
-        && echo "Flutter 웹 준비 완료 — http://localhost:3000" \
-        || echo "Flutter 웹 기동 실패 — 로그: $sprint/flutter-web.log"
+        && echo "Flutter web ready — http://localhost:3000" \
+        || echo "Flutter web startup failed — log: $sprint/flutter-web.log"
       cd "$ROOT_DIR"
       echo ""
 
-      # 기동된 서비스 URL 기록 (평가자가 Playwright MCP 로 접근)
+      # Record started service URLs (for Evaluator to access via Playwright MCP)
       {
         echo "BACKEND_URL=http://localhost:8080"
         echo "MCP_URL=http://localhost:8181"
@@ -1472,27 +1472,27 @@ cmd_evaluate() {
         [[ -n "$mcp_pid" ]]    && echo "MCP_PID=$mcp_pid"
         [[ -n "$flutter_pid" ]] && echo "FLUTTER_PID=$flutter_pid"
       } > "$sprint/e2e-env.txt"
-      echo "=== E2E 환경 준비 완료 ==="
+      echo "=== E2E environment ready ==="
       cat "$sprint/e2e-env.txt"
       echo ""
     fi
   } > "$test_results"
-  log_info "검사 완료 → $test_results"
+  log_info "Checks complete → $test_results"
 
-  # E2E 환경 컨텍스트 (마지막 스프린트인 경우)
+  # E2E environment context (last sprint only)
   local e2e_context=""
   if [[ -f "$sprint/e2e-env.txt" ]]; then
     e2e_context="
-### E2E 테스트 환경
+### E2E Test Environment
 \`\`\`
 $(cat "$sprint/e2e-env.txt")
 \`\`\`
 
-위 URL로 기동된 서비스가 있습니다.
-**Playwright MCP 툴**을 사용해 http://localhost:3000 앱을 직접 테스트하세요.
-- browser_navigate, browser_click, browser_snapshot, browser_screenshot 등 사용 가능
-- 백엔드 API는 http://localhost:8080 으로 접근 가능
-- 테스트 결과를 리포트에 포함하세요"
+The services started at the URLs above are running.
+Use **Playwright MCP tools** to test the app at http://localhost:3000 directly.
+- Available tools: browser_navigate, browser_click, browser_snapshot, browser_screenshot
+- Backend API available at http://localhost:8080
+- Include test results in the report"
   fi
 
   local eval_prompt
@@ -1500,64 +1500,64 @@ $(cat "$sprint/e2e-env.txt")
 
 ---
 
-## 스프린트 $sprint_num 검증
+## Sprint $sprint_num QA
 
-### 스코프
+### Scope
 $(cat "$sprint/contract.md")
 
-### 구현 요약
+### Implementation Summary
 $(cat "$sprint/implementation.md")
 
-### 자동 검사 결과
+### Automated Check Results
 \`\`\`
 $(cat "$test_results")
 \`\`\`
 $e2e_context
 
-리포트 마지막 줄에 정확히 한 줄로 작성하세요:
-\`VERDICT: PASS\`  또는  \`VERDICT: FAIL\`"
+Write exactly one line at the end of the report:
+\`VERDICT: PASS\`  or  \`VERDICT: FAIL\`"
 
   local eval_exit_code=0
-  invoke_role "evaluator" "$eval_prompt" "$sprint/qa-report.md" "평가자 — 스프린트 $sprint_num 검증 (반복 $iteration)" "inline" "$COPILOT_MODEL_EVALUATOR_QA" || eval_exit_code=$?
+  invoke_role "evaluator" "$eval_prompt" "$sprint/qa-report.md" "Evaluator — Sprint $sprint_num QA (iteration $iteration)" "inline" "$COPILOT_MODEL_EVALUATOR_QA" || eval_exit_code=$?
 
-  # E2E 테스트용 백그라운드 프로세스 정리
+  # Clean up background processes for E2E tests
   if [[ -f "$sprint/e2e-env.txt" ]]; then
-    log_info "E2E 환경 종료 중..."
+    log_info "Shutting down E2E environment..."
     while IFS='=' read -r key val; do
       case "$key" in
         BACKEND_PID|MCP_PID|FLUTTER_PID)
-          kill "$val" 2>/dev/null && log_info "$key ($val) 종료됨" || true ;;
+          kill "$val" 2>/dev/null && log_info "$key ($val) stopped" || true ;;
       esac
     done < "$sprint/e2e-env.txt"
   fi
 
   if [[ $eval_exit_code -ne 0 ]]; then
     echo "fail" > "$sprint/status"
-    log_err "스프린트 $sprint_num: 평가자 실행 오류 (exit $eval_exit_code) — 루프를 중단합니다"
-    log_info "수동 재개: 문제 수정 후 harn evaluate  또는  harn implement"
+    log_err "Sprint $sprint_num: evaluator execution error (exit $eval_exit_code) — stopping loop"
+    log_info "Manual resume: fix the issue then run harn evaluate  or  harn implement"
     return 1
   fi
 
   if grep -qiE 'VERDICT[[:space:]]*:[[:space:]]*PASS' "$sprint/qa-report.md"; then
     echo "pass" > "$sprint/status"
-    log_ok "스프린트 $sprint_num: ${G}통과${N}"
-    log_info "다음 단계: harn next"
+    log_ok "Sprint $sprint_num: ${G}PASS${N}"
+    log_info "Next step: harn next"
   else
     echo "fail" > "$sprint/status"
     local cur_iter
     cur_iter=$(sprint_iteration "$sprint")
-    log_warn "스프린트 $sprint_num: QA ${Y}FAIL${N} (반복 $cur_iter / $MAX_ITERATIONS) — 자동 재시도 중... (리포트: $sprint/qa-report.md)"
+    log_warn "Sprint $sprint_num: QA ${Y}FAIL${N} (iteration $cur_iter / $MAX_ITERATIONS) — retrying automatically... (report: $sprint/qa-report.md)"
   fi
 }
 
-# 내부용: 스프린트 카운터만 증가 (auto 내부 스프린트 전환에 사용)
+# Internal: only increments sprint counter (used for sprint transitions in auto mode)
 _sprint_advance() {
   local run_dir="$1"
   local sprint_num
   sprint_num=$(current_sprint_num "$run_dir")
   local next_num=$(( sprint_num + 1 ))
   echo "$next_num" > "$run_dir/current_sprint"
-  log_info "스프린트 $next_num 으로 전환"
+  log_info "Switching to sprint $next_num"
 }
 
 cmd_next() {
@@ -1568,29 +1568,29 @@ cmd_next() {
   local sprint
   sprint=$(sprint_dir "$run_dir" "$sprint_num")
 
-  log_step "작업 마무리"
+  log_step "Finishing up"
 
-  # 최종 요약 작성
+  # Write final completion summary
   invoke_role "evaluator" "$(cat "$PROMPTS_DIR/evaluator.md")
 
-## 작업: 최종 완료 요약
+## Task: Final Completion Summary
 
-### 스코프
-$(cat "$sprint/contract.md" 2>/dev/null || echo '(없음)')
+### Scope
+$(cat "$sprint/contract.md" 2>/dev/null || echo '(none)')
 
-### 구현 요약
-$(cat "$sprint/implementation.md" 2>/dev/null || echo '(없음)')
+### Implementation Summary
+$(cat "$sprint/implementation.md" 2>/dev/null || echo '(none)')
 
-### QA 리포트
-$(cat "$sprint/qa-report.md" 2>/dev/null || echo '(없음)')
+### QA Report
+$(cat "$sprint/qa-report.md" 2>/dev/null || echo '(none)')
 
-전체 작업에 대한 완료 요약(최대 300자)을 작성하세요:
-1. 구현된 내용 요약
-2. 주요 변경 파일
-3. 알려진 한계 또는 후속 과제" \
-    "$sprint/handoff.md" "평가자 — 최종 완료 요약" "inline" "$COPILOT_MODEL_EVALUATOR_QA"
+Write a completion summary for the full work (max 300 chars):
+1. Summary of what was implemented
+2. Key changed files
+3. Known limitations or follow-up tasks" \
+    "$sprint/handoff.md" "Evaluator — final completion summary" "inline" "$COPILOT_MODEL_EVALUATOR_QA"
 
-  # 백로그 → Done 이동
+  # Backlog → Done move
   local slug_or_prompt
   slug_or_prompt=$(cat "$run_dir/prompt.txt")
   if [[ "$slug_or_prompt" != *" "* && -f "$BACKLOG_FILE" ]]; then
@@ -1613,22 +1613,22 @@ else:
     content = content.rstrip() + '\n\n## Done\n' + item_text + '\n'
 open(path, 'w').write(content)
 PYEOF
-    log_ok "백로그: ${W}$slug_or_prompt${N} → Done"
+    log_ok "Backlog: ${W}$slug_or_prompt${N} → Done"
   fi
 
-  # 완료 플래그 (auto 재개 방지)
+  # Completion flag (prevents auto resumption)
   touch "$run_dir/completed"
   rm -f "$HARNESS_DIR/current"
 
-  log_ok "${G}작업 완전 완료: $slug_or_prompt${N}"
+  log_ok "${G}Task fully complete: $slug_or_prompt${N}"
 }
 
 cmd_stop() {
   local pid_file="$HARNESS_DIR/harness.pid"
 
   if [[ ! -f "$pid_file" ]]; then
-    log_warn "실행 중인 하네스를 찾을 수 없음 (PID 파일 없음)"
-    log_info "이미 종료됐거나 harn start 로 시작하지 않은 경우입니다."
+    log_warn "No running harness found (PID file missing)"
+    log_info "Already stopped or was not started with harn start."
     return 0
   fi
 
@@ -1636,26 +1636,26 @@ cmd_stop() {
   pid=$(cat "$pid_file")
 
   if ! kill -0 "$pid" 2>/dev/null; then
-    log_warn "프로세스 PID=$pid 가 이미 종료됨 — PID 파일 정리"
+    log_warn "Process PID=$pid already stopped — cleaning up PID file"
     rm -f "$pid_file"
     return 0
   fi
 
-  log_info "하네스 중지 중... (PID: ${W}$pid${N})"
+  log_info "Stopping harness... (PID: ${W}$pid${N})"
 
-  # 프로세스 그룹 전체에 SIGTERM (claude/copilot 자식 프로세스 포함)
+  # Send SIGTERM to the entire process group (including claude/copilot child processes)
   kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
   sleep 2
 
-  # 아직 살아있으면 SIGKILL
+  # If still alive, send SIGKILL
   if kill -0 "$pid" 2>/dev/null; then
-    log_warn "SIGTERM 후에도 실행 중 — SIGKILL 전송"
+    log_warn "Still running after SIGTERM — sending SIGKILL"
     kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
   fi
 
   rm -f "$pid_file"
 
-  # 현재 스프린트를 cancelled 로 표시
+  # Mark current sprint as cancelled
   local run_dir
   run_dir=$(require_run_dir 2>/dev/null) || true
   if [[ -n "$run_dir" ]]; then
@@ -1667,15 +1667,15 @@ cmd_stop() {
     if [[ "$cur_status" == "in-progress" || "$cur_status" == "pending" ]]; then
       echo "cancelled" > "$sprint/status"
     fi
-    log_ok "실행 ${W}$(basename "$run_dir")${N} 중지됨"
+    log_ok "Run ${W}$(basename "$run_dir")${N} stopped"
   else
-    log_ok "하네스 중지됨"
+    log_ok "Harness stopped"
   fi
 }
 
-# Git remote URL을 owner/repo 형식으로 변환
-# 예) https://github.com/org/repo.git  →  org/repo
-#     git@github.com:org/repo.git      →  org/repo
+# Convert Git remote URL to owner/repo format
+# e.g.) https://github.com/org/repo.git  →  org/repo
+#       git@github.com:org/repo.git      →  org/repo
 _git_url_to_nwo() {
   local url="$1"
   echo "$url" \
@@ -1684,8 +1684,8 @@ _git_url_to_nwo() {
     | sed 's|^git@[^:]*:||'
 }
 
-# ── Git 기획 브랜치 생성 & Draft PR ──────────────────────────────────────────
-# cmd_plan 완료 후 호출: 브랜치 생성 → 백로그 커밋 → Draft PR 생성
+# ── Git planning branch creation & Draft PR ──────────────────────────────────
+# Called after cmd_plan: create branch → commit backlog → create Draft PR
 _git_setup_plan_branch() {
   [[ "$GIT_ENABLED" != "true" ]] && return 0
 
@@ -1693,47 +1693,47 @@ _git_setup_plan_branch() {
   local branch="${GIT_PLAN_PREFIX}${slug}"
   local upstream="${GIT_UPSTREAM_REMOTE:-upstream}"
 
-  log_step "Git: 기획 브랜치 생성"
+  log_step "Git: Creating planning branch"
 
-  # 현재 브랜치 확인
+  # Check current branch
   local current_branch
   current_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
   if [[ -z "$current_branch" || "$current_branch" == "HEAD" ]]; then
-    log_warn "Git: HEAD를 확인할 수 없어 브랜치 생성을 건너뜁니다"
+    log_warn "Git: Cannot determine HEAD — skipping branch creation"
     return 0
   fi
 
-  # 브랜치 생성 또는 체크아웃
+  # Create or checkout branch
   if git -C "$ROOT_DIR" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-    log_warn "브랜치 ${W}$branch${N} 이미 존재 — 체크아웃합니다"
+    log_warn "Branch ${W}$branch${N} already exists — checking out"
     git -C "$ROOT_DIR" checkout "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
   else
     git -C "$ROOT_DIR" checkout -b "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
-    log_ok "브랜치 생성됨: ${W}$branch${N}"
+    log_ok "Branch created: ${W}$branch${N}"
   fi
 
-  # 백로그 파일 커밋 (변경이 있을 때만)
+  # Commit backlog file (only if changed)
   if [[ -f "$BACKLOG_FILE" ]]; then
     git -C "$ROOT_DIR" add "$BACKLOG_FILE"
     if ! git -C "$ROOT_DIR" diff --cached --quiet 2>/dev/null; then
-      git -C "$ROOT_DIR" commit -m "plan: ${slug} — 기획 시작 (sprint backlog 업데이트)" \
+      git -C "$ROOT_DIR" commit -m "plan: ${slug} — planning started (sprint backlog updated)" \
         2>&1 | while IFS= read -r line; do log_info "$line"; done
-      log_ok "스프린트 백로그 커밋 완료"
+      log_ok "Sprint backlog committed"
     else
-      log_info "백로그 파일 변경 없음 — 커밋 생략"
+      log_info "Backlog file unchanged — skipping commit"
     fi
   fi
 
-  # 브랜치를 origin(fork)에 Push (PR 생성을 위해 필수)
+  # Push branch to origin (fork) — required for PR creation
   if ! git -C "$ROOT_DIR" push -u origin "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_warn "Push 실패 — Draft PR 생성을 건너뜁니다. 수동으로 push 후 PR을 생성하세요."
-    log_info "브랜치: ${W}$branch${N}"
+    log_warn "Push failed — skipping Draft PR creation. Push manually and create a PR."
+    log_info "Branch: ${W}$branch${N}"
     return 0
   fi
-  log_ok "브랜치 Push 완료: origin/${W}$branch${N}"
+  log_ok "Branch pushed: origin/${W}$branch${N}"
 
-  # Draft PR 생성 — upstream 리모트의 저장소를 대상으로
+  # Create Draft PR — targeting the upstream remote's repository
   local pr_title="[Plan] ${slug}: ${plan_text}"
   local pr_body
   pr_body=$(cat "$run_dir/spec.md" 2>/dev/null || echo "$plan_text")
@@ -1741,20 +1741,20 @@ _git_setup_plan_branch() {
   local draft_flag="--draft"
   [[ "$GIT_PR_DRAFT" == "false" ]] && draft_flag=""
 
-  # upstream 리모트 URL → owner/repo 형식으로 변환해 --repo 에 전달
+  # Convert upstream remote URL → owner/repo format for --repo flag
   local upstream_url upstream_nwo
   upstream_url=$(git -C "$ROOT_DIR" remote get-url "$upstream" 2>/dev/null || echo "")
   upstream_nwo=$(_git_url_to_nwo "$upstream_url")
 
-  # fork PR 시 --head 는 fork_owner:branch 형식 필요
-  # origin URL 에서 fork owner 추출
+  # For fork PRs, --head needs fork_owner:branch format
+  # Extract fork owner from origin URL
   local origin_url fork_owner head_ref
   origin_url=$(git -C "$ROOT_DIR" remote get-url origin 2>/dev/null || echo "")
   fork_owner=$(_git_url_to_nwo "$origin_url" | cut -d'/' -f1)
   head_ref="$branch"
   [[ -n "$upstream_url" && -n "$fork_owner" ]] && head_ref="${fork_owner}:${branch}"
 
-  log_info "Draft PR 생성 중... (base: ${upstream_nwo:-$upstream}/${GIT_BASE_BRANCH}, head: ${head_ref})"
+  log_info "Creating Draft PR... (base: ${upstream_nwo:-$upstream}/${GIT_BASE_BRANCH}, head: ${head_ref})"
   local pr_out pr_repo_flag=""
   [[ -n "$upstream_nwo" ]] && pr_repo_flag="--repo $upstream_nwo"
 
@@ -1766,16 +1766,16 @@ _git_setup_plan_branch() {
       --title "$pr_title" \
       --body "$pr_body" \
       $draft_flag 2>&1); then
-    log_ok "Draft PR 생성됨: ${W}$pr_out${N}"
+    log_ok "Draft PR created: ${W}$pr_out${N}"
     echo "$pr_out" > "$run_dir/pr-url.txt"
   else
-    log_warn "PR 생성 실패 — 수동으로 생성하세요"
-    log_info "브랜치: origin/${W}$branch${N}  →  ${upstream_nwo:-$upstream}/${W}$GIT_BASE_BRANCH${N}"
-    log_info "오류: $pr_out"
+    log_warn "PR creation failed — create it manually"
+    log_info "Branch: origin/${W}$branch${N}  →  ${upstream_nwo:-$upstream}/${W}$GIT_BASE_BRANCH${N}"
+    log_info "Error: $pr_out"
   fi
 }
 
-# cmd_implement 완료 후 호출: 구현 변경사항 커밋 & push
+# Called after cmd_implement: commit implementation changes & push
 _git_commit_sprint_impl() {
   [[ "$GIT_ENABLED" != "true" ]] && return 0
 
@@ -1783,41 +1783,41 @@ _git_commit_sprint_impl() {
   local iteration
   iteration=$(cat "$sprint_dir_path/iteration" 2>/dev/null || echo "1")
 
-  # contract.md 에서 스프린트 목표 한 줄 추출
+  # Extract one-line sprint goal from contract.md
   local sprint_goal
   sprint_goal=$(grep -m1 '^\*\*Goal\*\*\|^Goal:' "$sprint_dir_path/contract.md" 2>/dev/null \
     | sed 's/^\*\*Goal\*\*[: ]*//;s/^Goal[: ]*//' | xargs)
-  [[ -z "$sprint_goal" ]] && sprint_goal="스프린트 ${sprint_num} 구현"
+  [[ -z "$sprint_goal" ]] && sprint_goal="Sprint ${sprint_num} implementation"
 
   local commit_msg="feat(sprint-${sprint_num}): ${sprint_goal}"
   [[ "$iteration" -gt 1 ]] && commit_msg="${commit_msg} (retry ${iteration})"
 
-  log_step "Git: 스프린트 $sprint_num 구현 커밋"
+  log_step "Git: Sprint $sprint_num implementation commit"
 
   cd "$ROOT_DIR"
   git add -A
   if git diff --cached --quiet 2>/dev/null; then
-    log_info "커밋할 변경사항 없음 — 개발자가 파일을 수정하지 않은 것 같습니다"
+    log_info "No changes to commit — generator may not have modified any files"
     return 0
   fi
 
   git commit -m "$commit_msg" \
     2>&1 | while IFS= read -r line; do log_info "$line"; done
-  log_ok "커밋 완료: ${W}${commit_msg}${N}"
+  log_ok "Commit done: ${W}${commit_msg}${N}"
 
   if [[ "$GIT_AUTO_PUSH" == "true" ]]; then
     local cur_branch
     cur_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     git push origin "$cur_branch" \
       2>&1 | while IFS= read -r line; do log_info "$line"; done
-    log_ok "Push 완료: origin/${W}${cur_branch}${N}"
+    log_ok "Push done: origin/${W}${cur_branch}${N}"
   fi
 }
 
-# ── Git 머지 헬퍼 ─────────────────────────────────────────────────────────────
+# ── Git merge helper ─────────────────────────────────────────────────────────
 _git_merge_to_base() {
   [[ "$GIT_ENABLED" != "true" ]]    && return 0
-  [[ "$GIT_AUTO_MERGE" != "true" ]] && return 0   # (A) GIT_AUTO_MERGE 게이트
+  [[ "$GIT_AUTO_MERGE" != "true" ]] && return 0   # (A) GIT_AUTO_MERGE gate
 
   local feat_branch base_branch upstream
   feat_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
@@ -1825,80 +1825,80 @@ _git_merge_to_base() {
   upstream="${GIT_UPSTREAM_REMOTE:-upstream}"
 
   if [[ -z "$feat_branch" || "$feat_branch" == "$base_branch" || "$feat_branch" == "HEAD" ]]; then
-    log_warn "Git: 머지할 feature 브랜치를 특정할 수 없습니다 (현재: ${feat_branch:-unknown})"
+    log_warn "Git: Cannot identify feature branch to merge (current: ${feat_branch:-unknown})"
     return 0
   fi
 
-  log_step "Git 마무리: ${W}${feat_branch}${N} → ${W}${upstream}/${base_branch}${N}"
+  log_step "Git finalize: ${W}${feat_branch}${N} → ${W}${upstream}/${base_branch}${N}"
 
-  # upstream NWO 결정 (gh pr merge --repo 에 필요)
+  # Determine upstream NWO (required for gh pr merge --repo)
   local upstream_url upstream_nwo
   upstream_url=$(git -C "$ROOT_DIR" remote get-url "$upstream" 2>/dev/null || echo "")
   upstream_nwo=$(_git_url_to_nwo "$upstream_url")
 
-  # 미커밋 변경사항 커밋 (백로그 Done 상태 등 포함)
+  # Commit uncommitted changes (including backlog Done status, etc.)
   cd "$ROOT_DIR"
   if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    log_info "미커밋 변경사항을 자동 커밋합니다..."
+    log_info "Auto-committing uncommitted changes..."
     git add -A
-    git commit -m "chore: harn 자동 커밋 — 스프린트 완료" \
+    git commit -m "chore: harn auto-commit — sprint complete" \
       2>&1 | while IFS= read -r line; do log_info "$line"; done
   fi
 
-  # feature 브랜치를 origin에 push (PR 최신화 필수)
-  log_info "PR 최신화: origin/${W}${feat_branch}${N} push 중..."
+  # Push feature branch to origin (required to update PR)
+  log_info "Updating PR: pushing origin/${W}${feat_branch}${N}..."
   if ! git push origin "$feat_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_warn "Push 실패 — 수동으로 PR을 머지하세요"
+    log_warn "Push failed — merge the PR manually"
     return 1
   fi
-  log_ok "Push 완료: origin/${W}${feat_branch}${N}"
+  log_ok "Push done: origin/${W}${feat_branch}${N}"
 
-  # (B) gh pr merge —merge (not squash): GitHub PR 를 통해 머지
+  # (B) gh pr merge —merge (not squash): merge via GitHub PR
   local pr_url_file pr_url pr_repo_flag=""
   pr_url_file="$(require_run_dir 2>/dev/null)/pr-url.txt"
   pr_url=$(cat "$pr_url_file" 2>/dev/null || echo "")
   [[ -n "$upstream_nwo" ]] && pr_repo_flag="--repo $upstream_nwo"
 
   local merge_target="${pr_url:-$feat_branch}"
-  log_info "PR 머지 중... (not squash): ${W}${merge_target}${N}"
+  log_info "Merging PR... (not squash): ${W}${merge_target}${N}"
 
   # shellcheck disable=SC2086
   if gh pr merge "$merge_target" \
       $pr_repo_flag \
       --merge 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "PR 머지 완료: ${W}${feat_branch}${N} → ${upstream_nwo:-$upstream}/${W}${base_branch}${N}"
+    log_ok "PR merge complete: ${W}${feat_branch}${N} → ${upstream_nwo:-$upstream}/${W}${base_branch}${N}"
   else
-    log_warn "gh pr merge 실패 — 수동으로 GitHub에서 PR을 머지한 뒤 계속하세요"
+    log_warn "gh pr merge failed — merge the PR on GitHub manually and then continue"
     log_info "PR: ${pr_url:-https://github.com/${upstream_nwo}/pulls}"
     return 1
   fi
 
-  # develop 으로 복귀
-  log_info "베이스 브랜치로 복귀: ${W}${base_branch}${N}"
+  # Return to base branch
+  log_info "Returning to base branch: ${W}${base_branch}${N}"
   git checkout "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
 
-  # (C) git pull (not rebase) — 머지된 커밋 동기화
-  log_info "${W}${upstream}/${base_branch}${N} pull 중..."
+  # (C) git pull (not rebase) — sync merged commits
+  log_info "Pulling ${W}${upstream}/${base_branch}${N}..."
   if git pull "$upstream" "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "pull 완료: ${upstream}/${W}${base_branch}${N}"
+    log_ok "Pull complete: ${upstream}/${W}${base_branch}${N}"
   else
-    log_warn "pull 실패 — 수동으로 ${upstream}/${base_branch} 를 pull 하세요"
+    log_warn "Pull failed — pull ${upstream}/${base_branch} manually"
     return 1
   fi
 }
 
-# ── 회고 ──────────────────────────────────────────────────────────────────────
+# ── Retrospective ──────────────────────────────────────────────────────────────
 cmd_retrospective() {
   local run_dir="$1"
   local ai_cmd; ai_cmd=$(_detect_ai_cli)
   if [[ -z "$ai_cmd" ]]; then
-    log_warn "AI CLI 없음 — 회고 건너뜀"
+    log_warn "No AI CLI — skipping retrospective"
     return 0
   fi
 
-  log_step "회고 (Retrospective)"
+  log_step "Retrospective"
 
-  # ── 컨텍스트 수집 ─────────────────────────────────────────────────────────
+  # ── Context collection ─────────────────────────────────────────────────────
   local backlog_item=""
   [[ -f "$run_dir/selected-slug" ]] && backlog_item=$(cat "$run_dir/selected-slug")
 
@@ -1927,35 +1927,35 @@ ${eval_result}"
 
 ---
 
-## 이번 작업 데이터
+## Current Run Data
 
-**백로그 항목**: ${backlog_item}
+**Backlog item**: ${backlog_item}
 
-**스프린트 요약**:
+**Sprint summary**:
 ${sprint_summary}
 
-**현재 기획자 프롬프트**:
+**Current planner prompt**:
 $(cat "$PROMPTS_DIR/planner.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/planner.md")
 
-**현재 개발자 프롬프트**:
+**Current generator prompt**:
 $(cat "$PROMPTS_DIR/generator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/generator.md")
 
-**현재 평가자 프롬프트**:
+**Current evaluator prompt**:
 $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evaluator.md")"
 
   local retro_out="$run_dir/retrospective.md"
-  log_info "AI(${W}${ai_cmd}${N})가 회고 분석 중..."
+  log_info "AI(${W}${ai_cmd}${N}) analyzing retrospective..."
   if ! _ai_generate "$ai_cmd" "$prompt" "$retro_out"; then
-    log_warn "회고 생성 실패 — 건너뜁니다"
+    log_warn "Retrospective generation failed — skipping"
     return 0
   fi
 
-  # ── 요약 출력 ─────────────────────────────────────────────────────────────
+  # ── Print summary ──────────────────────────────────────────────────────────
   local summary
   summary=$(awk '/^=== retro-summary ===$/{f=1;next} /^=== /{f=0} f{print}' "$retro_out")
   if [[ -n "$summary" ]]; then
     echo ""
-    echo -e "${W}  회고 요약${N}"
+    echo -e "${W}  Retrospective Summary${N}"
     echo -e "${D}  ────────────────────────────────────${N}"
     echo "$summary" | while IFS= read -r line; do
       echo -e "  $line"
@@ -1963,9 +1963,9 @@ $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evalua
     echo ""
   fi
 
-  # ── 프롬프트 개선 제안 검토 ────────────────────────────────────────────────
+  # ── Review prompt improvement suggestions ────────────────────────────────────
   local roles="planner generator evaluator"
-  local role_names=("planner:기획자" "generator:개발자" "evaluator:평가자")
+  local role_names=("planner:Planner" "generator:Generator" "evaluator:Evaluator")
   local any_applied=false
 
   for role_pair in "${role_names[@]}"; do
@@ -1977,62 +1977,62 @@ $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evalua
 
     [[ -z "$suggestion" || "$suggestion" == "none" ]] && continue
 
-    echo -e "${C}  ╭─ 💡 ${role_kr} 프롬프트 개선 제안${N}"
+    echo -e "${C}  ╭─ 💡 ${role_kr} prompt improvement suggestion${N}"
     echo "$suggestion" | while IFS= read -r line; do
       echo -e "${C}  │${N}  $line"
     done
     echo -e "${C}  ╰${N}"
     echo ""
-    printf "  이 제안을 ${W}${role_kr}${N} 프롬프트에 추가할까요? [y/N]: "
+    printf "  Add this suggestion to the ${W}${role_kr}${N} prompt? [y/N]: "
     local yn; yn=$(_input_readline); echo ""
 
     if [[ "$yn" == "y" || "$yn" == "Y" ]]; then
-      # 커스텀 프롬프트 파일 또는 기본 파일에 추가
+      # Add to custom prompt file or base file
       local target_prompt="$PROMPTS_DIR/${role}.md"
       if [[ ! -f "$target_prompt" ]]; then
-        # 커스텀 디렉터리에 없으면 기본 파일 복사 후 추가
+        # Not in custom directory — copy base file then add
         mkdir -p "$PROMPTS_DIR"
         cp "$SCRIPT_DIR/prompts/${role}.md" "$target_prompt"
       fi
-      printf '\n\n## 회고 개선사항 (%s)\n\n%s\n' "$(date '+%Y-%m-%d')" "$suggestion" >> "$target_prompt"
-      log_ok "${role_kr} 프롬프트에 추가됨: ${W}${target_prompt}${N}"
+      printf '\n\n## Retrospective Improvements (%s)\n\n%s\n' "$(date '+%Y-%m-%d')" "$suggestion" >> "$target_prompt"
+      log_ok "Added to ${role_kr} prompt: ${W}${target_prompt}${N}"
       any_applied=true
     else
-      log_info "${role_kr} 제안 건너뜀"
+      log_info "${role_kr} suggestion skipped"
     fi
   done
 
   if [[ "$any_applied" == "true" ]]; then
-    # 커스텀 프롬프트 디렉터리 config 반영
+    # Reflect custom prompt directory in config
     if [[ "$PROMPTS_DIR" != "$SCRIPT_DIR/prompts" ]]; then
       local rel_dir="${PROMPTS_DIR#$ROOT_DIR/}"
       sed -i '' "s|^CUSTOM_PROMPTS_DIR=.*|CUSTOM_PROMPTS_DIR=\"${rel_dir}\"|" "$CONFIG_FILE" 2>/dev/null || true
     fi
-    log_ok "프롬프트 개선사항이 적용되었습니다."
+    log_ok "Prompt improvements applied."
   fi
 
-  log_ok "회고 완료 — 결과: ${W}${retro_out}${N}"
+  log_ok "Retrospective complete — results: ${W}${retro_out}${N}"
 }
 
-# ── 스프린트 루프 본체 ────────────────────────────────────────────────────────
+# ── Sprint loop main body ─────────────────────────────────────────────────────
 _run_sprint_loop() {
   local max_sprints="${1:-10}"
   local run_dir
   run_dir=$(require_run_dir)
 
-  # current.log 심볼릭 링크 항상 최신화 (재개 시에도 tail 이 동작하도록)
+  # Always update current.log symlink (so tail works on resume too)
   local run_log="$run_dir/run.log"
   touch "$run_log"
   ln -sfn "$run_log" "$HARNESS_DIR/current.log"
   LOG_FILE="$run_log"
 
-  # PID 저장 (harn stop 이 이 프로세스를 찾을 수 있도록)
+  # Save PID (so harn stop can find this process)
   echo "$$" > "$HARNESS_DIR/harness.pid"
   trap 'rm -f "$HARNESS_DIR/harness.pid"' EXIT
-  trap 'rm -f "$HARNESS_DIR/harness.pid"; log_warn "하네스가 사용자에 의해 중단되었습니다."; exit 130' INT
-  trap 'rm -f "$HARNESS_DIR/harness.pid"; log_warn "하네스가 종료 신호를 받았습니다."; exit 143' TERM
+  trap 'rm -f "$HARNESS_DIR/harness.pid"; log_warn "Harness interrupted by user."; exit 130' INT
+  trap 'rm -f "$HARNESS_DIR/harness.pid"; log_warn "Harness received termination signal."; exit 143' TERM
 
-  log_step "루프 시작 (최대 $max_sprints 스프린트)"
+  log_step "Loop started (up to $max_sprints sprints)"
 
   for _ in $(seq 1 "$max_sprints"); do
     local sprint_num
@@ -2040,7 +2040,7 @@ _run_sprint_loop() {
     local sprint
     sprint=$(sprint_dir "$run_dir" "$sprint_num")
 
-    # 진행률 표시
+    # Show progress
     local total_planned
     total_planned=$(count_sprints_in_backlog "$run_dir/sprint-backlog.md")
     _print_sprint_progress "$sprint_num" "${total_planned:-$max_sprints}"
@@ -2049,57 +2049,57 @@ _run_sprint_loop() {
       cmd_contract
     fi
 
-    # 재개 시 이미 완료된 반복 횟수를 초기값으로 사용
+    # Use already-completed iteration count as initial value on resume
     local iter
     iter=$(sprint_iteration "$sprint")
 
     if [[ "$(sprint_status "$sprint")" == "pass" ]]; then
-      log_info "스프린트 $sprint_num 이미 통과됨 — 다음으로 진행"
+      log_info "Sprint $sprint_num already passed — moving to next"
     elif [[ $iter -ge $MAX_ITERATIONS ]]; then
-      log_warn "스프린트 $sprint_num 최대 반복 횟수($MAX_ITERATIONS) 이미 도달 — 강제 진행"
+      log_warn "Sprint $sprint_num already reached max iterations ($MAX_ITERATIONS) — forcing advance"
     else
       while [[ $iter -lt $MAX_ITERATIONS ]]; do
         cmd_implement
         iter=$(sprint_iteration "$sprint")
         if ! cmd_evaluate; then
-          log_err "평가자 프로세스 오류로 루프를 중단합니다. 문제 수정 후 harn evaluate 를 실행하세요."
+          log_err "Evaluator process error — stopping loop. Fix the issue and run harn evaluate."
           return 1
         fi
         [[ "$(sprint_status "$sprint")" == "pass" ]] && break
       done
       if [[ "$(sprint_status "$sprint")" != "pass" ]]; then
-        log_warn "스프린트 $sprint_num: 최대 반복 횟수($MAX_ITERATIONS) 도달 — QA 미통과 상태로 강제 진행"
+        log_warn "Sprint $sprint_num: max iterations ($MAX_ITERATIONS) reached — forcing advance without QA pass"
       fi
     fi
 
-    # 전체 스프린트 완료 여부 확인
+    # Check if all sprints are complete
     local total
     total=$(count_sprints_in_backlog "$run_dir/sprint-backlog.md")
 
     if [[ $total -gt 0 && $sprint_num -ge $total ]]; then
-      # ── 마지막 스프린트 완료: 최종 정리 후 종료 ──────────────────────────
+      # ── Last sprint done: final cleanup and exit ────────────────────────────
       _log_raw ""
       _log_raw "${G}  ╔══════════════════════════════════════════════════════════╗${N}"
-      _log_raw "${G}  ║  ✓  전체 ${total}개 스프린트 완료!${N}"
+      _log_raw "${G}  ║  ✓  All ${total} sprints complete!${N}"
       _log_raw "${G}  ╚══════════════════════════════════════════════════════════╝${N}"
-      cmd_next          # handoff 작성 + 백로그 Done + completed 플래그
+      cmd_next          # write handoff + move backlog to Done + set completed flag
       _git_merge_to_base
       if [[ "$HARN_SKIP_RETRO" != "true" ]]; then
         cmd_retrospective "$run_dir"
       fi
       break
     else
-      # ── 중간 스프린트 완료: 카운터만 올리고 다음 스프린트로 ─────────────
-      log_info "스프린트 $sprint_num 완료 — 스프린트 $(( sprint_num + 1 )) 으로 전환"
+      # ── Intermediate sprint done: increment counter and move to next sprint ─
+      log_info "Sprint $sprint_num done — switching to sprint $(( sprint_num + 1 ))"
       _sprint_advance "$run_dir"
     fi
   done
 }
 
-# ── 신규 작업 발굴 ─────────────────────────────────────────────────────────────
+# ── New task discovery ─────────────────────────────────────────────────────────
 
 cmd_discover() {
-  log_step "백로그 발굴 — 코드베이스 분석"
+  log_step "Backlog discovery — codebase analysis"
 
   mkdir -p "$HARNESS_DIR"
   LOG_FILE="$HARNESS_DIR/harness.log"
@@ -2111,7 +2111,7 @@ cmd_discover() {
   local prompt
   prompt="You are a senior engineer analyzing the **Servan** project codebase.
 
-> **Language instruction**: Write all descriptions, goals, and reasoning in **Korean**. Slugs, code, and file paths stay in English.
+> **Language instruction**: Write all descriptions, goals, and reasoning in **English**. Slugs, code, and file paths stay in English.
 
 ## Servan Architecture
 
@@ -2128,11 +2128,11 @@ $current_backlog
 ## Your Task
 
 Scan the codebase for:
-1. TODO / FIXME / HACK 주석
-2. 불완전한 기능 (stub, placeholder, not-implemented)
-3. 테스트가 없는 핵심 경로
-4. 아키텍처 위반 또는 레이어 규칙 미준수
-5. 사용자 가치를 높이는 신규 기능
+1. TODO / FIXME / HACK comments
+2. Incomplete features (stub, placeholder, not-implemented)
+3. Critical paths with no tests
+4. Architecture violations or layer rule violations
+5. New features that add user value
 
 Pick the **2–4 highest-value items** not already in the backlog above.
 
@@ -2142,28 +2142,28 @@ Output ONLY this block — nothing else:
 
 === new-items ===
 - [ ] **slug-for-item**
-  한글 설명 (1–2줄): 무엇을, 왜 해야 하는지.
+  English description (1–2 lines): what to do and why.
 
 - [ ] **another-slug**
-  한글 설명.
+  English description.
 
 Rules:
 - slug: hyphenated-lowercase, max 50 chars
 - 2–4 items only
 - No duplicates with existing backlog"
 
-  invoke_role "planner" "$prompt" "$out_file" "분석가 — 신규 백로그 항목 발굴" "inline" "$COPILOT_MODEL_PLANNER"
+  invoke_role "planner" "$prompt" "$out_file" "Analyst — discover new backlog items" "inline" "$COPILOT_MODEL_PLANNER"
 
-  # 섹션 마커 이후 내용 추출
+  # Extract content after section marker
   local new_items
   new_items=$(awk '/^=== new-items ===$/{f=1;next} f{print}' "$out_file")
 
   if [[ -z "$new_items" ]]; then
-    log_warn "새 항목을 추출하지 못했습니다 — $out_file 를 확인하세요."
+    log_warn "Could not extract new items — check $out_file."
     return 0
   fi
 
-  # 백로그 파일이 없으면 기본 구조 생성
+  # Create default structure if backlog file doesn't exist
   if [[ ! -f "$BACKLOG_FILE" ]]; then
     cat > "$BACKLOG_FILE" <<'BEOF'
 # Sprint Backlog
@@ -2174,10 +2174,10 @@ Rules:
 
 ## Done
 BEOF
-    log_info "백로그 파일 생성됨: $BACKLOG_FILE"
+    log_info "Backlog file created: $BACKLOG_FILE"
   fi
 
-  # ## Pending 섹션에 직접 삽입 (stdin으로 항목 전달)
+  # Insert directly into ## Pending section (items passed via stdin)
   printf '%s' "${new_items}" | python3 - "$BACKLOG_FILE" <<'PYEOF'
 import sys, re
 
@@ -2206,21 +2206,21 @@ else:
 open(path, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PYEOF
 
-  log_ok "새 항목이 백로그에 추가됨"
+  log_ok "New items added to backlog"
   echo ""
   echo "$new_items" | grep -E '^\- \[ \] \*\*' | while IFS= read -r line; do
     echo -e "  ${Y}$line${N}"
   done
   echo ""
-  log_info "확인: harn backlog   /   바로 시작: harn auto"
+  log_info "Check: harn backlog   /   Start now: harn auto"
 }
 
-# ── 백로그 항목 추가 ───────────────────────────────────────────────────────────
+# ── Add backlog item ───────────────────────────────────────────────────────────
 
 cmd_add() {
-  log_step "백로그 항목 추가"
+  log_step "Adding backlog item"
 
-  # 백로그 파일 없으면 기본 구조 생성
+  # Create default structure if backlog file doesn't exist
   if [[ ! -f "$BACKLOG_FILE" ]]; then
     mkdir -p "$(dirname "$BACKLOG_FILE")"
     cat > "$BACKLOG_FILE" <<'BEOF'
@@ -2232,27 +2232,27 @@ cmd_add() {
 
 ## Done
 BEOF
-    log_info "백로그 파일 생성됨: $BACKLOG_FILE"
+    log_info "Backlog file created: $BACKLOG_FILE"
   fi
 
   echo -e ""
-  echo -e "${B}  ╭─ ✚ 새 백로그 항목${N}"
-  echo -e "${B}  │${N}  구현하고 싶은 기능이나 작업을 자유롭게 설명하세요."
-  echo -e "${B}  │${N}  AI가 slug와 설명을 생성해 백로그에 추가합니다."
-  echo -e "${B}  │${N}  ${D}여러 줄 입력 가능  ·  빈 줄로 완료${N}"
+  echo -e "${B}  ╭─ ✚ New backlog item${N}"
+  echo -e "${B}  │${N}  Describe the feature or task you want to implement."
+  echo -e "${B}  │${N}  AI will generate a slug and description and add it to the backlog."
+  echo -e "${B}  │${N}  ${D}Multi-line input supported  ·  Empty line to finish${N}"
   echo -e "${B}  ╰${N}"
 
   local user_input
   user_input=$(_input_multiline)
 
   if [[ -z "$user_input" ]]; then
-    log_warn "입력 없음 — 취소됨"
+    log_warn "No input — cancelled"
     return 0
   fi
 
   local ai_cmd; ai_cmd=$(_detect_ai_cli)
   if [[ -z "$ai_cmd" ]]; then
-    log_err "AI CLI를 찾을 수 없습니다. copilot 또는 claude 를 설치하세요."
+    log_err "AI CLI not found. Install copilot or claude."
     exit 1
   fi
 
@@ -2260,40 +2260,40 @@ BEOF
   [[ -f "$BACKLOG_FILE" ]] && current_backlog=$(cat "$BACKLOG_FILE")
 
   local prompt
-  prompt="당신은 스프린트 백로그 관리자입니다.
+  prompt="You are a sprint backlog manager.
 
-> **Language**: 설명은 한국어, slug·코드·파일명은 영어로 작성하세요.
+> **Language**: Write all descriptions in English. Slugs, code, and file names stay in English.
 
-## 현재 백로그
+## Current Backlog
 \`\`\`
 ${current_backlog}
 \`\`\`
 
-## 사용자 요청
+## User Request
 ${user_input}
 
-## 작업
-위 요청을 바탕으로 백로그 항목을 1~3개 생성하세요.
-기존 백로그와 중복되지 않도록 하세요.
+## Task
+Generate 1–3 backlog items based on the request above.
+Do not duplicate existing backlog items.
 
-## 출력 형식 (이 형식만 출력, 다른 텍스트 없음)
+## Output Format (output ONLY this block — nothing else)
 
 === new-items ===
 - [ ] **slug-for-item**
-  한국어 설명 (1~2줄): 무엇을, 왜 해야 하는지.
+  English description (1–2 lines): what to do and why.
 
 Rules:
 - slug: hyphenated-lowercase, max 50 chars
-- 설명은 항목 바로 아래 들여쓰기(2칸)
-- 1~3개만 생성"
+- Description indented 2 spaces directly below the item
+- 1–3 items only"
 
-  log_info "AI(${W}${ai_cmd}${N})가 백로그 항목을 생성 중..."
+  log_info "AI(${W}${ai_cmd}${N}) generating backlog items..."
 
   local out_file="$HARNESS_DIR/add-$(date +%Y%m%d-%H%M%S).md"
   mkdir -p "$HARNESS_DIR"
 
   if ! _ai_generate "$ai_cmd" "$prompt" "$out_file"; then
-    log_err "AI 생성 실패"
+    log_err "AI generation failed"
     return 1
   fi
 
@@ -2301,11 +2301,11 @@ Rules:
   new_items=$(awk '/^=== new-items ===$/{f=1;next} f{print}' "$out_file")
 
   if [[ -z "$new_items" ]]; then
-    log_warn "항목을 추출하지 못했습니다 — $out_file 를 확인하세요."
+    log_warn "Could not extract items — check $out_file."
     return 0
   fi
 
-  # Pending 섹션에 추가 (stdin으로 항목 전달 — 따옴표 충돌 방지)
+  # Add to Pending section (items passed via stdin — prevents quote conflicts)
   printf '%s' "${new_items}" | python3 - "$BACKLOG_FILE" <<'PYEOF'
 import sys, re
 
@@ -2317,7 +2317,7 @@ if not new_items_text:
 content = open(path, encoding='utf-8').read()
 lines = content.splitlines()
 
-# ## Pending 섹션의 끝 위치를 찾아 직접 삽입
+# Find end of ## Pending section and insert there
 pending_start = None
 next_section = None
 for i, line in enumerate(lines):
@@ -2330,10 +2330,10 @@ for i, line in enumerate(lines):
 insert_lines = [''] + new_items_text.splitlines() + ['']
 
 if pending_start is None:
-    # ## Pending 섹션 없음 — 파일 끝에 추가
+    # No ## Pending section — append to end of file
     lines += ['', '## Pending'] + insert_lines
 else:
-    # ## Pending 헤더 바로 다음에 삽입
+    # Insert right after the ## Pending header
     insert_at = pending_start + 1
     lines[insert_at:insert_at] = insert_lines
 
@@ -2341,23 +2341,23 @@ open(path, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PYEOF
 
   echo ""
-  log_ok "백로그에 추가됨:"
+  log_ok "Added to backlog:"
   echo "$new_items" | grep -E '^\- \[ \] \*\*' | while IFS= read -r item; do
     echo -e "  ${C}▸${N} $item"
   done
   echo ""
-  log_info "확인: ${W}harn backlog${N}   /   바로 시작: ${W}harn start${N}"
+  log_info "Check: ${W}harn backlog${N}   /   Start now: ${W}harn start${N}"
 }
 
-# ── 자동 모드 ──────────────────────────────────────────────────────────────────
+# ── Auto mode ──────────────────────────────────────────────────────────────────
 
 cmd_auto() {
-  log_step "자동 모드"
+  log_step "Auto mode"
 
   local run_id run_dir
   run_id=$(current_run_id)
 
-  # 1. 진행 중인 실행이 있으면 재개
+  # 1. Resume in-progress run if present
   if [[ -n "$run_id" ]]; then
     run_dir="$HARNESS_DIR/runs/$run_id"
     if [[ ! -f "$run_dir/completed" ]]; then
@@ -2367,36 +2367,36 @@ cmd_auto() {
       cur_status=$(sprint_status "$sprint" 2>/dev/null || echo "pending")
 
       if [[ "$cur_status" != "cancelled" ]]; then
-        log_info "진행 중인 실행 재개: ${W}$run_id${N}  (스프린트 $sprint_num · $cur_status)"
+        log_info "Resuming in-progress run: ${W}$run_id${N}  (sprint $sprint_num · $cur_status)"
         _run_sprint_loop 10
         return 0
       else
-        log_info "마지막 실행이 중단됨 — 새 항목을 찾습니다"
+        log_info "Last run was cancelled — looking for next item"
       fi
     else
-      log_info "마지막 실행 완료됨 (${W}$run_id${N}) — 다음 항목을 찾습니다"
+      log_info "Last run completed (${W}$run_id${N}) — looking for next item"
     fi
   fi
 
-  # 2. 백로그에 대기 항목이 있으면 시작
+  # 2. Start next pending backlog item if available
   local next_slug
   next_slug=$(backlog_next_slug)
 
   if [[ -n "$next_slug" ]]; then
-    log_info "백로그 다음 항목 시작: ${W}$next_slug${N}"
-    rm -f "$HARNESS_DIR/current"   # 완료/중단된 이전 run 포인터 초기화
+    log_info "Starting next backlog item: ${W}$next_slug${N}"
+    rm -f "$HARNESS_DIR/current"   # reset previous run pointer
     cmd_start "$next_slug"
     return 0
   fi
 
-  # 3. 백로그 비어있음 → 코드베이스 분석 후 새 항목 추가
-  log_warn "백로그가 비어있습니다."
+  # 3. Backlog empty → analyze codebase and add new items
+  log_warn "Backlog is empty."
   cmd_discover
 
-  # 발굴 후 새 항목이 생겼으면 바로 시작
+  # If discovery produced new items, start immediately
   next_slug=$(backlog_next_slug)
   if [[ -n "$next_slug" ]]; then
-    log_info "발굴된 첫 번째 항목 시작: ${W}$next_slug${N}"
+    log_info "Starting first discovered item: ${W}$next_slug${N}"
     rm -f "$HARNESS_DIR/current"
     cmd_start "$next_slug"
   fi
@@ -2404,7 +2404,7 @@ cmd_auto() {
 
 cmd_all() {
   if [[ ! -f "$BACKLOG_FILE" ]]; then
-    log_err "백로그 파일을 찾을 수 없습니다: $BACKLOG_FILE"
+    log_err "Backlog file not found: $BACKLOG_FILE"
     exit 1
   fi
 
@@ -2412,8 +2412,8 @@ cmd_all() {
   slugs=$(backlog_pending_slugs)
 
   if [[ -z "$slugs" ]]; then
-    log_warn "백로그에 대기 중인 항목이 없습니다."
-    log_info "항목을 추가하려면: ${W}harn discover${N}  또는  ${W}harn add${N}"
+    log_warn "No pending items in backlog."
+    log_info "To add items: ${W}harn discover${N}  or  ${W}harn add${N}"
     return 0
   fi
 
@@ -2423,7 +2423,7 @@ cmd_all() {
   done <<< "$slugs"
 
   local total_items="${#slug_array[@]}"
-  log_step "전체 자동 실행 — ${W}${total_items}${N}개 항목"
+  log_step "Full automated run — ${W}${total_items}${N} item(s)"
   echo ""
   local i=1
   for slug in "${slug_array[@]}"; do
@@ -2432,7 +2432,7 @@ cmd_all() {
   done
   echo ""
 
-  # 개별 항목 실행 중 회고 억제 — 맨 마지막에 한꺼번에 진행
+  # Suppress per-item retrospective — run all at end
   HARN_SKIP_RETRO="true"
 
   local completed_run_dirs=()
@@ -2441,20 +2441,20 @@ cmd_all() {
 
   for slug in "${slug_array[@]}"; do
     item_num=$(( item_num + 1 ))
-    log_step "[$item_num/$total_items] 항목 시작: ${W}$slug${N}"
+    log_step "[$item_num/$total_items] Starting item: ${W}$slug${N}"
 
-    # 이전 run 포인터 초기화 (cmd_start 가 새 run을 생성하도록)
+    # Reset run pointer (so cmd_start creates a new run)
     rm -f "$HARNESS_DIR/current"
 
     if cmd_start "$slug"; then
-      # 방금 완료된 run 디렉터리 기록
+      # Record just-completed run directory
       local finished_run
       finished_run=$(ls -dt "$HARNESS_DIR/runs/"*/ 2>/dev/null | head -1)
       finished_run="${finished_run%/}"
       [[ -n "$finished_run" ]] && completed_run_dirs+=("$finished_run")
-      log_ok "[$item_num/$total_items] 완료: ${W}$slug${N}"
+      log_ok "[$item_num/$total_items] Complete: ${W}$slug${N}"
     else
-      log_err "[$item_num/$total_items] 실패: ${W}$slug${N} — 다음 항목으로 계속합니다"
+      log_err "[$item_num/$total_items] Failed: ${W}$slug${N} — continuing with next item"
       failed_slugs+=("$slug")
     fi
     echo ""
@@ -2462,27 +2462,27 @@ cmd_all() {
 
   HARN_SKIP_RETRO="false"
 
-  # ── 전체 완료 배너 ────────────────────────────────────────────────────────
+  # ── Completion banner ────────────────────────────────────────────────────────
   local done_count="${#completed_run_dirs[@]}"
   local fail_count="${#failed_slugs[@]}"
 
   _log_raw ""
   _log_raw "${G}  ╔══════════════════════════════════════════════════════════╗${N}"
-  _log_raw "${G}  ║  ✓  전체 ${total_items}개 항목 처리 완료   (성공: ${done_count}  실패: ${fail_count})${N}"
+  _log_raw "${G}  ║  ✓  All ${total_items} item(s) processed   (success: ${done_count}  failed: ${fail_count})${N}"
   _log_raw "${G}  ╚══════════════════════════════════════════════════════════╝${N}"
 
   if [[ $fail_count -gt 0 ]]; then
-    log_warn "실패 항목: ${failed_slugs[*]}"
-    log_info "실패 항목은 수동으로 재실행하세요: ${W}harn start <slug>${N}"
+    log_warn "Failed items: ${failed_slugs[*]}"
+    log_info "Re-run failed items manually: ${W}harn start <slug>${N}"
   fi
 
-  # ── 회고: 완료된 모든 항목에 대해 순차 진행 ──────────────────────────────
+  # ── Retrospective: run sequentially for all completed items ─────────────────
   if [[ $done_count -gt 0 ]]; then
-    log_step "회고 진행 (${done_count}개 항목)"
+    log_step "Running retrospective (${done_count} item(s))"
     for run_dir in "${completed_run_dirs[@]}"; do
       local item_slug
       item_slug=$(cat "$run_dir/prompt.txt" 2>/dev/null || basename "$run_dir")
-      log_info "회고: ${W}$item_slug${N}"
+      log_info "Retrospective: ${W}$item_slug${N}"
       cmd_retrospective "$run_dir" || true
     done
   fi
@@ -2493,12 +2493,12 @@ cmd_status() {
   run_id=$(current_run_id)
   sprint_num=$(current_sprint_num "$run_dir")
 
-  echo -e "${W}실행 ID:${N}   $run_id"
-  echo -e "${W}항목:${N}      $(cat "$run_dir/prompt.txt")"
-  echo -e "${W}현재 스프린트:${N} $sprint_num"
+  echo -e "${W}Run ID:${N}    $run_id"
+  echo -e "${W}Item:${N}      $(cat "$run_dir/prompt.txt")"
+  echo -e "${W}Current sprint:${N} $sprint_num"
 
   echo ""
-  echo -e "${W}스프린트 목록:${N}"
+  echo -e "${W}Sprints:${N}"
   local any=0
   for s in "$run_dir/sprints"/*/; do
     [[ -d "$s" ]] || continue
@@ -2511,45 +2511,45 @@ cmd_status() {
     [[ "$status" == "in-progress" ]] && icon="${Y}↻${N}"
     [[ "$status" == "cancelled" ]]   && icon="${R}⊘${N}"
 
-    local status_kr="대기"
-    [[ "$status" == "pass" ]]        && status_kr="통과"
-    [[ "$status" == "fail" ]]        && status_kr="실패"
-    [[ "$status" == "in-progress" ]] && status_kr="진행 중"
-    [[ "$status" == "cancelled" ]]   && status_kr="중단됨"
+    local status_label="pending"
+    [[ "$status" == "pass" ]]        && status_label="passed"
+    [[ "$status" == "fail" ]]        && status_label="failed"
+    [[ "$status" == "in-progress" ]] && status_label="in-progress"
+    [[ "$status" == "cancelled" ]]   && status_label="cancelled"
 
-    echo -e "  스프린트 $sn  $icon $status_kr  (반복: $iter)"
+    echo -e "  Sprint $sn  $icon $status_label  (iterations: $iter)"
   done
-  [[ $any -eq 0 ]] && echo "  (스프린트 없음)"
+  [[ $any -eq 0 ]] && echo "  (no sprints)"
 }
 
 cmd_config() {
   local sub="${1:-show}"
   case "$sub" in
     show)
-      echo -e "${W}Harness 설정${N}  (${CONFIG_FILE})"
-      echo -e "  프로젝트:          ${W}$ROOT_DIR${N}"
-      echo -e "  백로그 파일:       ${W}$BACKLOG_FILE${N}"
-      echo -e "  최대 재시도:       ${W}$MAX_ITERATIONS${N}"
-      echo -e "  Git 통합:          ${W}$GIT_ENABLED${N}"
+      echo -e "${W}Harness Configuration${N}  (${CONFIG_FILE})"
+      echo -e "  Project:           ${W}$ROOT_DIR${N}"
+      echo -e "  Backlog file:      ${W}$BACKLOG_FILE${N}"
+      echo -e "  Max retries:       ${W}$MAX_ITERATIONS${N}"
+      echo -e "  Git integration:   ${W}$GIT_ENABLED${N}"
       [[ "$GIT_ENABLED" == "true" ]] && {
-        echo -e "  베이스 브랜치:     ${W}$GIT_BASE_BRANCH${N}"
-        echo -e "  자동 Push:         ${W}$GIT_AUTO_PUSH${N}"
-        echo -e "  자동 PR:           ${W}$GIT_AUTO_PR${N}"
+        echo -e "  Base branch:       ${W}$GIT_BASE_BRANCH${N}"
+        echo -e "  Auto push:         ${W}$GIT_AUTO_PUSH${N}"
+        echo -e "  Auto PR:           ${W}$GIT_AUTO_PR${N}"
       }
       echo ""
-      echo -e "${W}AI 모델${N}"
-      echo -e "  기획자:            ${W}$COPILOT_MODEL_PLANNER${N}"
-      echo -e "  개발자(협의):      ${W}$COPILOT_MODEL_GENERATOR_CONTRACT${N}"
-      echo -e "  개발자(구현):      ${W}$COPILOT_MODEL_GENERATOR_IMPL${N}"
-      echo -e "  평가자(협의):      ${W}$COPILOT_MODEL_EVALUATOR_CONTRACT${N}"
-      echo -e "  평가자(QA):        ${W}$COPILOT_MODEL_EVALUATOR_QA${N}"
-      [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]] && echo -e "\n  커스텀 프롬프트:   ${W}$PROMPTS_DIR${N}"
+      echo -e "${W}AI Models${N}"
+      echo -e "  Planner:           ${W}$COPILOT_MODEL_PLANNER${N}"
+      echo -e "  Generator (contract): ${W}$COPILOT_MODEL_GENERATOR_CONTRACT${N}"
+      echo -e "  Generator (impl):  ${W}$COPILOT_MODEL_GENERATOR_IMPL${N}"
+      echo -e "  Evaluator (contract): ${W}$COPILOT_MODEL_EVALUATOR_CONTRACT${N}"
+      echo -e "  Evaluator (QA):    ${W}$COPILOT_MODEL_EVALUATOR_QA${N}"
+      [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]] && echo -e "\n  Custom prompts:    ${W}$PROMPTS_DIR${N}"
       ;;
     set)
       local key="${2:-}" val="${3:-}"
-      [[ -z "$key" || -z "$val" ]] && { log_err "사용법: harn config set KEY VALUE"; exit 1; }
+      [[ -z "$key" || -z "$val" ]] && { log_err "Usage: harn config set KEY VALUE"; exit 1; }
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_err ".harness_config 파일이 없습니다. 먼저 ${W}harn init${N} 을 실행하세요."
+        log_err "No .harness_config file. Run ${W}harn init${N} first."
         exit 1
       fi
       if grep -q "^${key}=" "$CONFIG_FILE"; then
@@ -2557,26 +2557,26 @@ cmd_config() {
       else
         echo "${key}=\"${val}\"" >> "$CONFIG_FILE"
       fi
-      log_ok "${W}${key}${N} = \"${val}\" 설정됨"
+      log_ok "${W}${key}${N} = \"${val}\" set"
       ;;
     regen)
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_err ".harness_config 파일이 없습니다. 먼저 ${W}harn init${N} 을 실행하세요."
+        log_err ".harness_config file not found. Run ${W}harn init${N} first."
         exit 1
       fi
       local ai_cmd; ai_cmd=$(_detect_ai_cli)
       if [[ -z "$ai_cmd" ]]; then
-        log_err "AI CLI를 찾을 수 없습니다. copilot 또는 claude 를 설치하세요."
+        log_err "No AI CLI found. Install copilot or claude."
         exit 1
       fi
       local hp="${HINT_PLANNER:-}" hg="${HINT_GENERATOR:-}" he="${HINT_EVALUATOR:-}" gg="${GIT_GUIDE:-}"
       if [[ -z "$hp" && -z "$hg" && -z "$he" && -z "$gg" ]]; then
-        log_warn "config에 HINT_* / GIT_GUIDE 값이 없습니다. 재생성할 내용이 없습니다."
-        log_info "힌트를 추가하려면: ${W}harn config set HINT_PLANNER \"힌트 내용\"${N}"
+        log_warn "No HINT_* / GIT_GUIDE values in config. Nothing to regenerate."
+        log_info "To add hints: ${W}harn config set HINT_PLANNER \"hint content\"${N}"
         exit 0
       fi
-      log_step "커스텀 프롬프트 재생성"
-      log_info "AI CLI(${W}${ai_cmd}${N})로 프롬프트를 재생성합니다..."
+      log_step "Regenerating custom prompts"
+      log_info "Regenerating prompts with AI CLI (${W}${ai_cmd}${N})..."
       _generate_custom_prompts "$hp" "$hg" "$he" "$gg"
       local cpd=".harness/prompts"
       if ! grep -q "^CUSTOM_PROMPTS_DIR=" "$CONFIG_FILE"; then
@@ -2585,57 +2585,57 @@ cmd_config() {
         sed -i '' "s|^CUSTOM_PROMPTS_DIR=.*|CUSTOM_PROMPTS_DIR=\"${cpd}\"|" "$CONFIG_FILE"
       fi
       load_config
-      log_ok "커스텀 프롬프트 재생성 완료: ${W}$PROMPTS_DIR${N}"
+      log_ok "Custom prompts regenerated: ${W}$PROMPTS_DIR${N}"
       ;;
     *)
-      log_err "알 수 없는 config 서브명령: $sub"
-      echo -e "사용법: harn config [show|set KEY VALUE|regen]"
+      log_err "Unknown config subcommand: $sub"
+      echo -e "Usage: harn config [show|set KEY VALUE|regen]"
       exit 1
       ;;
   esac
 }
 
 cmd_runs() {
-  echo -e "${W}하네스 실행 목록:${N}"
+  echo -e "${W}Harness runs:${N}"
   local current_id; current_id=$(current_run_id)
   for d in "$HARNESS_DIR/runs"/*/; do
     [[ -d "$d" ]] || continue
     local id prompt marker
     id=$(basename "$d")
-    prompt=$(head -c 70 "$d/prompt.txt" 2>/dev/null || echo "(프롬프트 없음)")
-    marker=""; [[ "$id" == "$current_id" ]] && marker=" ${G}← 현재${N}"
+    prompt=$(head -c 70 "$d/prompt.txt" 2>/dev/null || echo "(no prompt)")
+    marker=""; [[ "$id" == "$current_id" ]] && marker=" ${G}← current${N}"
     echo -e "  ${W}$id${N}: $prompt$marker"
   done
 }
 
 cmd_resume() {
   local run_id="${1:-}"
-  [[ -z "$run_id" ]] && { log_err "사용법: harn resume <run-id>"; exit 1; }
+  [[ -z "$run_id" ]] && { log_err "Usage: harn resume <run-id>"; exit 1; }
   local run_dir="$HARNESS_DIR/runs/$run_id"
-  [[ ! -d "$run_dir" ]] && { log_err "실행을 찾을 수 없음: $run_id"; exit 1; }
+  [[ ! -d "$run_dir" ]] && { log_err "Run not found: $run_id"; exit 1; }
   ln -sfn "$run_dir" "$HARNESS_DIR/current"
-  log_ok "재개됨: $run_id"
+  log_ok "Resumed: $run_id"
   cmd_status
 }
 
 cmd_tail() {
   local log="$HARNESS_DIR/current.log"
 
-  # current.log 심볼릭 링크가 없거나 끊긴 경우 → 가장 최근 run 로그로 폴백
+  # current.log symlink missing or broken → fall back to most recent run log
   if [[ ! -e "$log" ]]; then
     local latest_log
     latest_log=$(ls -t "$HARNESS_DIR/runs"/*/run.log 2>/dev/null | head -1)
     if [[ -n "$latest_log" ]]; then
-      log_warn "current.log 없음 — 최근 실행 로그로 대체: $latest_log"
+      log_warn "No current.log — falling back to latest run log: $latest_log"
       ln -sfn "$latest_log" "$HARNESS_DIR/current.log"
       log="$latest_log"
     else
-      log_err "활성 로그 없음. 먼저 실행을 시작하세요: harn auto"
+      log_err "No active log. Start a run first: harn auto"
       exit 1
     fi
   fi
 
-  echo -e "${W}로그 실시간 출력:${N} $log  ${B}(Ctrl-C 로 중지)${N}"
+  echo -e "${W}Tailing log:${N} $log  ${B}(Ctrl-C to stop)${N}"
   tail -f "$log"
 }
 
@@ -2644,45 +2644,45 @@ usage() {
   cat <<EOF
 ${D}  $(pwd)${N}
 
-  ${W}사용법${N}  harn <command>
+  ${W}Usage${N}  harn <command>
 
-  ${C}설정${N}
-    init                  초기 설정 (최초 1회 또는 재설정)
-    config                현재 설정 출력
-    config set KEY VALUE  특정 설정값 변경
-    config regen          HINT_* 기반으로 커스텀 프롬프트 재생성
+  ${C}Setup${N}
+    init                  Initial setup (first run or reconfigure)
+    config                Show current configuration
+    config set KEY VALUE  Update a specific setting
+    config regen          Regenerate custom prompts from HINT_* values
 
-  ${C}백로그${N}
-    backlog               대기 항목 목록
-    add                   새 백로그 항목 추가 (AI 보조)
-    discover              코드베이스 분석 후 항목 자동 발굴
+  ${C}Backlog${N}
+    backlog               List pending items
+    add                   Add new backlog item (AI-assisted)
+    discover              Analyze codebase and discover new items
 
-  ${C}실행${N}
-    start                 항목 선택 후 전체 루프 실행
-    auto                  재개 / 시작 / 발굴 자동 판단
-    all                   대기 중인 모든 항목 순차 실행 (회고는 마지막에)
+  ${C}Run${N}
+    start                 Select an item and run the full loop
+    auto                  Auto-detect: resume / start / discover
+    all                   Run all pending items sequentially (retro at end)
 
-  ${C}단계별${N}
-    plan                  기획자 재실행
-    contract              스코프 협의
-    implement             개발자 실행
-    evaluate              평가자 실행
-    next                  다음 스프린트
+  ${C}Step by step${N}
+    plan                  Re-run planner
+    contract              Scope negotiation
+    implement             Run generator
+    evaluate              Run evaluator
+    next                  Advance to next sprint
 
-  ${C}모니터링${N}
-    status                현재 실행 상태
-    tail                  실시간 로그
-    runs                  실행 목록
-    resume <id>           이전 실행 재개
-    stop                  루프 중지
+  ${C}Monitoring${N}
+    status                Current run status
+    tail                  Live log output
+    runs                  List all runs
+    resume <id>           Resume a previous run
+    stop                  Stop the loop
 
-  ${D}팁: 루프 실행 중 각 단계 사이에 추가 지시사항을 입력할 수 있습니다.${N}
+  ${D}Tip: You can inject extra instructions between steps during a loop run.${N}
   ${D}    HARNESS_COPILOT_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start${N}
 
 EOF
 }
 
-# ── 전역 옵션 파싱 (명령어 앞 플래그) ────────────────────────────────────────
+# ── Global option parsing (flags before command) ──────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h)
@@ -2713,7 +2713,7 @@ while [[ $# -gt 0 ]]; do
       break
       ;;
     -*)
-      log_err "알 수 없는 옵션: $1"
+      log_err "Unknown option: $1"
       usage
       exit 1
       ;;
@@ -2725,15 +2725,15 @@ done
 
 validate_role_models
 
-# ── 설정 로드 / 첫 실행 감지 ──────────────────────────────────────────────────
+# ── Config load / first-run detection ────────────────────────────────────────
 _cmd="${1:-help}"
 case "$_cmd" in
-  init|help|--help|-h) : ;;  # config 없이 실행 가능한 명령
+  init|help|--help|-h) : ;;  # commands that can run without config
   *)
     if [[ ! -f "$CONFIG_FILE" ]]; then
       _print_banner
-      echo -e "  ${Y}⚠${N}  이 디렉터리에 ${W}.harness_config${N}가 없습니다."
-      echo -e "     초기 설정을 시작합니다...\n"
+      echo -e "  ${Y}⚠${N}  No ${W}.harness_config${N} found in this directory."
+      echo -e "     Starting initial setup...\n"
       cmd_init
     else
       load_config
@@ -2741,7 +2741,7 @@ case "$_cmd" in
     ;;
 esac
 
-# ── 라우팅 ────────────────────────────────────────────────────────────────────
+# ── Routing ───────────────────────────────────────────────────────────────────
 case "${1:-help}" in
   init)      cmd_init ;;
   auto)      cmd_auto ;;
@@ -2762,5 +2762,5 @@ case "${1:-help}" in
   runs)      cmd_runs ;;
   resume)    cmd_resume "${2:-}" ;;
   help|--help|-h) usage ;;
-  *) log_err "알 수 없는 명령: $1"; usage; exit 1 ;;
+  *) log_err "Unknown command: $1"; usage; exit 1 ;;
 esac

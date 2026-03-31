@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""claude --output-format stream-json 실시간 파서
-JSON 이벤트 스트림에서 텍스트 토큰을 추출해 실시간으로 출력한다.
-tool_use / tool_result 진행 상황도 간단히 표시한다.
+"""Real-time parser for claude --output-format stream-json
+Extracts text tokens from the JSON event stream and prints them in real time.
+Also briefly shows tool_use / tool_result progress.
 """
 import sys, json, io
 
-C = '\033[0;36m'   # cyan (tool 표시용)
+C = '\033[0;36m'   # cyan (tool indicator)
 Y = '\033[1;33m'   # yellow
 N = '\033[0m'
 
 stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8', errors='replace')
 
-# 파일 끝에 개행이 붙었는지 추적 (마지막에 보장)
+# Track whether the last character written was a newline (to ensure final newline)
 last_char_was_newline = True
 
 for raw in stdin:
@@ -21,7 +21,7 @@ for raw in stdin:
     try:
         obj = json.loads(raw)
     except json.JSONDecodeError:
-        # JSON 아닌 줄 (에러 메시지 등) 그대로 출력
+        # Non-JSON line (error messages etc.) — print as-is
         sys.stdout.write(raw + '\n')
         sys.stdout.flush()
         last_char_was_newline = True
@@ -29,7 +29,7 @@ for raw in stdin:
 
     t = obj.get('type', '')
 
-    # ── 텍스트 토큰 (실시간 스트리밍) ────────────────────────────────────────
+    # ── Text tokens (real-time streaming) ────────────────────────────────────
     if t == 'stream_event':
         event = obj.get('event', {})
         et = event.get('type', '')
@@ -54,21 +54,21 @@ for raw in stdin:
                 last_char_was_newline = True
 
         elif et == 'tool_result':
-            # 도구 결과 간략 표시
+            # Brief tool result preview
             content = event.get('content', '')
             preview = str(content)[:80].replace('\n', ' ')
             sys.stdout.write(f'{Y}  → {preview}{N}\n')
             sys.stdout.flush()
             last_char_was_newline = True
 
-    # ── 최종 결과 ─────────────────────────────────────────────────────────────
+    # ── Final result ──────────────────────────────────────────────────────────
     elif t == 'result':
         if not last_char_was_newline:
             sys.stdout.write('\n')
             sys.stdout.flush()
-        # result 자체는 이미 위에서 텍스트 토큰으로 출력됨 — 중복 출력 안 함
+        # result body is already printed via text tokens above — skip to avoid duplication
 
-    # ── 에러 ──────────────────────────────────────────────────────────────────
+    # ── Error ─────────────────────────────────────────────────────────────────
     elif t == 'error':
         msg = obj.get('error', {}).get('message', str(obj))
         sys.stdout.write(f'\n[ERROR] {msg}\n')
