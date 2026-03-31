@@ -25,11 +25,19 @@ npm install -g @githubnext/github-copilot-cli
 
 ## Installation
 
+### via npm (recommended)
+
+```bash
+npm install -g @tyrannoapartment/harn
+```
+
+### via GitHub Packages
+
 ```bash
 npm install -g @tyrannoapartment/harn --registry=https://npm.pkg.github.com
 ```
 
-> **Note**: You need to authenticate with GitHub Packages once:
+> **Note**: GitHub Packages requires authentication:
 > ```bash
 > npm login --registry=https://npm.pkg.github.com
 > # Username: your GitHub username
@@ -48,7 +56,7 @@ ln -s "$(pwd)/harn.sh" /usr/local/bin/harn
 ### Uninstall
 
 ```bash
-npm uninstall -g @tyrannoapartment/harn --registry=https://npm.pkg.github.com
+npm uninstall -g @tyrannoapartment/harn
 ```
 
 ---
