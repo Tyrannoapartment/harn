@@ -1,0 +1,26 @@
+{
+  "name": "@tyrannoapartment/harn",
+  "version": "1.0.0",
+  "description": "AI multi-agent sprint development loop orchestrator (Planner → Generator → Evaluator)",
+  "keywords": ["ai", "agents", "sprint", "planner", "cli", "copilot", "claude"],
+  "homepage": "https://github.com/Tyrannoapartment/harn",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tyrannoapartment/harn.git"
+  },
+  "license": "MIT",
+  "bin": {
+    "harn": "./harn.sh"
+  },
+  "files": [
+    "harn.sh",
+    "parser/",
+    "prompts/"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
+}

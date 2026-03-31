@@ -1,0 +1,6 @@
+.git/
+.github/
+.harness/
+.harness_config
+.DS_Store
+*.log

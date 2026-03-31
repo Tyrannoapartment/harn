@@ -25,45 +25,30 @@ npm install -g @githubnext/github-copilot-cli
 
 ## Installation
 
-### Homebrew (recommended)
-
 ```bash
-brew tap Tyrannoapartment/harn
-brew install harn
+npm install -g @tyrannoapartment/harn --registry=https://npm.pkg.github.com
 ```
 
-### curl
+> **Note**: You need to authenticate with GitHub Packages once:
+> ```bash
+> npm login --registry=https://npm.pkg.github.com
+> # Username: your GitHub username
+> # Password: a GitHub Personal Access Token with read:packages scope
+> ```
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Tyrannoapartment/harn/main/install.sh | bash
-```
-
-### Manual
+### Manual (git clone)
 
 ```bash
 git clone https://github.com/Tyrannoapartment/harn.git
 cd harn
-bash install.sh
+chmod +x harn.sh
+ln -s "$(pwd)/harn.sh" /usr/local/bin/harn
 ```
-
-#### Options
-
-```bash
-bash install.sh             # user install  (~/.local/share/harn, ~/.local/bin/harn)
-bash install.sh --global    # system-wide   (/usr/local/lib/harn, /usr/local/bin/harn)
-HARN_PREFIX=/opt bash install.sh   # custom prefix
-```
-
-> **PATH note**: After a user install, add `~/.local/bin` to PATH if it isn't already:
-> ```bash
-> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-> ```
 
 ### Uninstall
 
 ```bash
-bash uninstall.sh           # remove user install
-bash uninstall.sh --global  # remove system-wide install
+npm uninstall -g @tyrannoapartment/harn --registry=https://npm.pkg.github.com
 ```
 
 ---
