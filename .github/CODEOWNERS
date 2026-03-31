@@ -1,0 +1,14 @@
+# Owners for harn
+
+# Default: all changes require review from maintainers
+*                   @Tyrannoapartment
+
+# Core orchestrator
+harn.sh             @Tyrannoapartment
+
+# Agent prompts — changes affect all AI agents
+prompts/            @Tyrannoapartment
+
+# Install / packaging
+install.sh          @Tyrannoapartment
+uninstall.sh        @Tyrannoapartment
