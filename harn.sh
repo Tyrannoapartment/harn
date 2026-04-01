@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.0.5"
+HARN_VERSION="1.0.6"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -28,7 +28,7 @@ PROMPTS_DIR="$SCRIPT_DIR/prompts"
 CONFIG_FILE="$ROOT_DIR/.harness_config"
 
 # Defaults (before config is loaded)
-BACKLOG_FILE="$ROOT_DIR/docs/planner/sprint-backlog.md"
+BACKLOG_FILE="$ROOT_DIR/sprint-backlog.md"
 BACKLOG_FILE_DISPLAY="${BACKLOG_FILE}"
 MAX_ITERATIONS=5
 GIT_ENABLED="false"
@@ -578,7 +578,7 @@ cmd_init() {
   fi
 
   # ── Project basic settings ───────────────────────────────────────────────────
-  local bf_default="docs/planner/sprint-backlog.md"
+  local bf_default="sprint-backlog.md"
   printf "Backlog file path (relative to project root) [%s]: " "$bf_default"
   local bf_input; bf_input=$(_input_readline); echo ""
   local bf="${bf_input:-$bf_default}"
@@ -764,6 +764,29 @@ CFGEOF
 # ── Backlog helpers ───────────────────────────────────────────────────────────
 
 # Pending item slug list (in-progress → pending order)
+_ensure_backlog_file() {
+  [[ -f "$BACKLOG_FILE" ]] && return 0
+  log_warn "Backlog file not found: ${W}$BACKLOG_FILE${N}"
+  log_info "Creating default backlog file..."
+  mkdir -p "$(dirname "$BACKLOG_FILE")"
+  cat > "$BACKLOG_FILE" <<'BACKLOG_EOF'
+# Sprint Backlog
+
+## Pending
+<!-- Add backlog items below. Format:
+- [ ] **slug-name**
+  Brief description of the feature or task.
+-->
+
+## In Progress
+
+## Done
+BACKLOG_EOF
+  log_ok "Created: ${W}$BACKLOG_FILE${N}"
+  log_info "Add items with: ${W}harn add${N}  or edit the file directly"
+  echo ""
+}
+
 backlog_pending_slugs() {
   [[ ! -f "$BACKLOG_FILE" ]] && return
   python3 - "$BACKLOG_FILE" <<'EOF'
@@ -1040,7 +1063,7 @@ invoke_role() {
 # ── Commands ───────────────────────────────────────────────────────────────────
 
 cmd_backlog() {
-  [[ ! -f "$BACKLOG_FILE" ]] && { log_err "Backlog not found: $BACKLOG_FILE"; exit 1; }
+  _ensure_backlog_file
   echo -e "${W}Pending backlog items:${N}"
   local slugs
   slugs=$(backlog_pending_slugs)
@@ -1077,10 +1100,7 @@ cmd_start() {
 
   # No argument — show backlog list and prompt for a number
   if [[ -z "$slug_or_prompt" ]]; then
-    if [[ ! -f "$BACKLOG_FILE" ]]; then
-      log_err "Backlog file not found: $BACKLOG_FILE"
-      exit 1
-    fi
+    _ensure_backlog_file
 
     local slugs
     slugs=$(backlog_pending_slugs)
