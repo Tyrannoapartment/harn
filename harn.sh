@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.0.4"
+HARN_VERSION="1.0.5"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -2645,12 +2645,17 @@ cmd_all() {
 }
 
 cmd_status() {
-  local run_id sprint_num
+  local run_id run_dir sprint_num
   run_id=$(current_run_id)
+  if [[ -z "$run_id" ]]; then
+    log_warn "No active run. Start with: ${W}harn start${N}"
+    return 0
+  fi
+  run_dir="$HARNESS_DIR/runs/$run_id"
   sprint_num=$(current_sprint_num "$run_dir")
 
   echo -e "${W}Run ID:${N}    $run_id"
-  echo -e "${W}Item:${N}      $(cat "$run_dir/prompt.txt")"
+  echo -e "${W}Item:${N}      $(cat "$run_dir/prompt.txt" 2>/dev/null || echo "(unknown)")"
   echo -e "${W}Current sprint:${N} $sprint_num"
 
   echo ""
@@ -2898,6 +2903,141 @@ case "$_cmd" in
     ;;
 esac
 
+cmd_doctor() {
+  echo -e "\n${W}╔══════════════════════════════════════╗${N}"
+  echo -e "${W}║          harn doctor  🩺              ║${N}"
+  echo -e "${W}╚══════════════════════════════════════╝${N}\n"
+
+  # ── Version ─────────────────────────────────────────────────────────────────
+  echo -e "${W}▸ Version${N}"
+  echo -e "  harn:         ${C}$HARN_VERSION${N}"
+  echo -e "  bash:         ${C}${BASH_VERSION:-unknown}${N}"
+  echo ""
+
+  # ── AI CLIs ─────────────────────────────────────────────────────────────────
+  echo -e "${W}▸ AI Backends${N}"
+  local backend_ok=0
+
+  if command -v copilot &>/dev/null; then
+    local cp_ver; cp_ver=$(copilot --version 2>/dev/null | head -1 || echo "installed")
+    echo -e "  ${G}✓${N} copilot:      ${C}${cp_ver}${N}"
+    backend_ok=1
+  else
+    echo -e "  ${R}✗${N} copilot:      not found"
+    echo -e "    Install: ${W}gh extension install github/gh-copilot${N}"
+  fi
+
+  if command -v claude &>/dev/null; then
+    local cl_ver; cl_ver=$(claude --version 2>/dev/null | head -1 || echo "installed")
+    echo -e "  ${G}✓${N} claude:       ${C}${cl_ver}${N}"
+    backend_ok=1
+  else
+    echo -e "  ${R}✗${N} claude:       not found"
+    echo -e "    Install: ${W}npm install -g @anthropic-ai/claude-code${N}"
+  fi
+
+  if [[ -n "${AI_BACKEND:-}" ]]; then
+    echo -e "  Active backend: ${W}${AI_BACKEND}${N}"
+  elif [[ $backend_ok -eq 0 ]]; then
+    echo -e "  ${R}⚠ No AI backend available — run: harn init${N}"
+  fi
+  echo ""
+
+  # ── Git ─────────────────────────────────────────────────────────────────────
+  echo -e "${W}▸ Git${N}"
+  if command -v git &>/dev/null; then
+    local git_ver; git_ver=$(git --version 2>/dev/null | head -1)
+    echo -e "  ${G}✓${N} git:          ${C}${git_ver}${N}"
+  else
+    echo -e "  ${R}✗${N} git:          not found"
+  fi
+
+  if command -v gh &>/dev/null; then
+    local gh_ver; gh_ver=$(gh --version 2>/dev/null | head -1)
+    local gh_auth; gh_auth=$(gh auth status 2>&1 | grep -i "logged in" | head -1 | sed 's/^[[:space:]]*//')
+    echo -e "  ${G}✓${N} gh:           ${C}${gh_ver}${N}"
+    if [[ -n "$gh_auth" ]]; then
+      echo -e "  ${G}✓${N} gh auth:      ${C}${gh_auth}${N}"
+    else
+      echo -e "  ${Y}?${N} gh auth:      not authenticated — run: ${W}gh auth login${N}"
+    fi
+  else
+    echo -e "  ${R}✗${N} gh:           not found — PR features disabled"
+    echo -e "    Install: ${W}brew install gh${N}"
+  fi
+
+  if [[ -n "${ROOT_DIR:-}" ]] && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+    local branch; branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    local remote; remote=$(git -C "$ROOT_DIR" remote -v 2>/dev/null | head -1 | awk '{print $2}')
+    echo -e "  Project repo: ${C}${branch}${N} @ ${remote:-none}"
+  fi
+  echo ""
+
+  # ── Harness config ───────────────────────────────────────────────────────────
+  echo -e "${W}▸ Harness Config${N}"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    echo -e "  ${G}✓${N} .harness_config:  found  (${W}$CONFIG_FILE${N})"
+    echo -e "  Git integration:  ${W}${GIT_ENABLED:-false}${N}"
+    [[ "$GIT_ENABLED" == "true" ]] && {
+      echo -e "  Base branch:      ${W}${GIT_BASE_BRANCH:-not set}${N}"
+      echo -e "  PR target branch: ${W}${GIT_PR_TARGET_BRANCH:-not set}${N}"
+    }
+    echo -e "  Sprint count:     ${W}${SPRINT_COUNT:-2}${N}"
+    echo -e "  AI backend:       ${W}${AI_BACKEND:-auto}${N}"
+  else
+    echo -e "  ${R}✗${N} .harness_config:  not found"
+    echo -e "    Run: ${W}harn init${N}"
+  fi
+
+  if [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]]; then
+    echo -e "  Custom prompts:   ${W}${PROMPTS_DIR}${N}"
+  fi
+  echo ""
+
+  # ── Models ───────────────────────────────────────────────────────────────────
+  echo -e "${W}▸ Models${N}"
+  echo -e "  Planner:              ${W}${COPILOT_MODEL_PLANNER:-default}${N}"
+  echo -e "  Generator (contract): ${W}${COPILOT_MODEL_GENERATOR_CONTRACT:-default}${N}"
+  echo -e "  Generator (impl):     ${W}${COPILOT_MODEL_GENERATOR_IMPL:-default}${N}"
+  echo -e "  Evaluator (contract): ${W}${COPILOT_MODEL_EVALUATOR_CONTRACT:-default}${N}"
+  echo -e "  Evaluator (QA):       ${W}${COPILOT_MODEL_EVALUATOR_QA:-default}${N}"
+  echo ""
+
+  # ── Active run ───────────────────────────────────────────────────────────────
+  echo -e "${W}▸ Active Run${N}"
+  local run_id; run_id=$(current_run_id)
+  if [[ -n "$run_id" ]]; then
+    local run_dir="$HARNESS_DIR/runs/$run_id"
+    local slug; slug=$(cat "$run_dir/prompt.txt" 2>/dev/null || echo "unknown")
+    local sprint_num; sprint_num=$(current_sprint_num "$run_dir")
+    echo -e "  ${G}✓${N} Run:          ${W}${run_id}${N}  (${slug})"
+    echo -e "  Sprint:       ${W}${sprint_num}${N}"
+  else
+    echo -e "  No active run"
+  fi
+  echo ""
+
+  # ── Dependencies ─────────────────────────────────────────────────────────────
+  echo -e "${W}▸ Other Dependencies${N}"
+  local all_ok=1
+  for dep in python3 node; do
+    if command -v "$dep" &>/dev/null; then
+      local dver; dver=$($dep --version 2>/dev/null | head -1)
+      echo -e "  ${G}✓${N} ${dep}:       ${C}${dver}${N}"
+    else
+      echo -e "  ${Y}?${N} ${dep}:       not found (optional)"
+      all_ok=0
+    fi
+  done
+  echo ""
+
+  if [[ $backend_ok -eq 1 ]]; then
+    echo -e "${G}All critical checks passed.${N}\n"
+  else
+    echo -e "${R}⚠ One or more critical checks failed. Run: harn init${N}\n"
+  fi
+}
+
 # ── Routing ───────────────────────────────────────────────────────────────────
 case "${1:-help}" in
   init)      cmd_init ;;
@@ -2915,6 +3055,7 @@ case "${1:-help}" in
   config)    cmd_config "${2:-show}" "${3:-}" "${4:-}" ;;
   backlog)   cmd_backlog ;;
   status)    cmd_status ;;
+  doctor)    cmd_doctor ;;
   tail)      cmd_tail ;;
   runs)      cmd_runs ;;
   resume)    cmd_resume "${2:-}" ;;
