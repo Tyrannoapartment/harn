@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.3.2"
+HARN_VERSION="1.3.3"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -909,6 +909,12 @@ _i18n_load() {
     I18N_INIT_COMPLETE="초기화 완료!"
     I18N_INIT_HINT_BACKLOG="  harn backlog  — 백로그 항목 보기"
     I18N_INIT_HINT_START="  harn start    — 루프 시작"
+    # AI CLI check / backend selection
+    I18N_NO_AI_CLI="AI CLI를 찾을 수 없어요."
+    I18N_NO_AI_CLI_HINT="harn은 GitHub Copilot CLI 또는 Claude CLI가 필요합니다."
+    I18N_AI_BACKEND_TITLE="기본 AI 백엔드"
+    I18N_AI_USING_COPILOT="${G}✓${N} ${W}copilot${N} 사용 (GitHub Copilot CLI 감지됨)"
+    I18N_AI_USING_CLAUDE="${G}✓${N} ${W}claude${N} 사용 (Anthropic Claude CLI 감지됨)"
   else
     I18N_LANG_NAME="English"
     I18N_INIT_LANG_PROMPT="Language"
@@ -1014,6 +1020,12 @@ _i18n_load() {
     I18N_INIT_COMPLETE="Initialization complete!"
     I18N_INIT_HINT_BACKLOG="  harn backlog  — view backlog items"
     I18N_INIT_HINT_START="  harn start    — start the loop"
+    # AI CLI check / backend selection
+    I18N_NO_AI_CLI="${R}✗ No AI CLI found.${N}"
+    I18N_NO_AI_CLI_HINT="harn requires GitHub Copilot CLI or Claude CLI."
+    I18N_AI_BACKEND_TITLE="Default AI backend"
+    I18N_AI_USING_COPILOT="${G}✓${N} Using ${W}copilot${N} (GitHub Copilot CLI detected)"
+    I18N_AI_USING_CLAUDE="${G}✓${N} Using ${W}claude${N} (Anthropic Claude CLI detected)"
   fi
 }
 
@@ -1096,15 +1108,8 @@ _check_ai_cli_installed() {
   command -v claude   &>/dev/null && has_claude=true
 
   if [[ "$has_copilot" == "false" && "$has_claude" == "false" ]]; then
-    echo -e "\n${R}✗ No AI CLI found.${N}"
-    echo -e "  harn requires ${W}GitHub Copilot CLI${N} or ${W}Claude CLI${N}.\n"
-    echo -e "  ${W}GitHub Copilot CLI${N} (requires GitHub Copilot subscription)"
-    echo -e "    npm install -g @githubnext/github-copilot-cli"
-    echo -e "    gh auth login && gh copilot --version\n"
-    echo -e "  ${W}Claude CLI${N} (requires Anthropic API key)"
-    echo -e "    npm install -g @anthropic-ai/claude-cli   (or: pip install claude-cli)"
-    echo -e "    export ANTHROPIC_API_KEY=sk-ant-..."
-    echo -e "    claude --version\n"
+    echo -e "\n${I18N_NO_AI_CLI}"
+    echo -e "  ${I18N_NO_AI_CLI_HINT}\n"
     return 1
   fi
   return 0
@@ -1118,14 +1123,14 @@ _select_ai_backend() {
 
   if [[ "$has_copilot" == "true" && "$has_claude" == "true" ]]; then
     local choice
-    choice=$(_pick_menu "Default AI backend" 0 "copilot  (GitHub Copilot CLI)" "claude   (Anthropic Claude CLI)") || return 1
+    choice=$(_pick_menu "$I18N_AI_BACKEND_TITLE" 0 "copilot  (GitHub Copilot CLI)" "claude   (Anthropic Claude CLI)") || return 1
     [[ "$choice" == claude* ]] && AI_BACKEND="claude" || AI_BACKEND="copilot"
   elif [[ "$has_copilot" == "true" ]]; then
     AI_BACKEND="copilot"
-    echo -e "\n${G}✓${N} Using ${W}copilot${N} (GitHub Copilot CLI detected)"
+    echo -e "\n${I18N_AI_USING_COPILOT}"
   elif [[ "$has_claude" == "true" ]]; then
     AI_BACKEND="claude"
-    echo -e "\n${G}✓${N} Using ${W}claude${N} (Anthropic Claude CLI detected)"
+    echo -e "\n${I18N_AI_USING_CLAUDE}"
   fi
 }
 
