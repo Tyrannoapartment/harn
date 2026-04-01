@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.6"
+HARN_VERSION="1.1.7"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -117,9 +117,11 @@ log_agent_start() {
     copilot*) ansi_color=$'\033[0;32m' ;;  # green
     *)        ansi_color=$'\033[0;36m' ;;  # cyan
   esac
+  local term_cols
+  term_cols=$(tput cols 2>/dev/null || echo 80)
   local output
   output=$(python3 -c '
-import sys, os, unicodedata
+import sys, unicodedata
 
 def wcswidth(s):
     return sum(2 if unicodedata.east_asian_width(c) in ("W","F") else 1 for c in s)
@@ -137,15 +139,11 @@ color  = sys.argv[1]
 model  = sys.argv[2]
 role   = sys.argv[3]
 task   = sys.argv[4]
+cols   = int(sys.argv[5])
 
 reset  = "\033[0m"
 bold_w = "\033[1;37m"
 dim    = "\033[2m"
-
-try:
-    cols = os.get_terminal_size().columns
-except OSError:
-    cols = 80
 
 inner = max(cols - 6, 20)   # 6 = "  │  " prefix width
 bar   = color + "  " + "\u2500" * (inner + 4) + reset
@@ -159,7 +157,7 @@ print(color + "  \u2502" + reset + "  " + bold_w + header + reset)
 print(color + "  \u2502" + reset + "  " + dim    + detail + reset)
 print(bar)
 print()
-' "$ansi_color" "$model" "$role" "$task")
+' "$ansi_color" "$model" "$role" "$task" "$term_cols")
   # Terminal output + log file write (ANSI stripped)
   echo -e "$output"
   echo -e "$output" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
