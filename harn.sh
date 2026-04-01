@@ -1642,7 +1642,7 @@ _ai_generate() {
   case "$ai_cmd" in
     copilot) copilot --yolo -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
     claude)  claude -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
-    codex)   codex -q "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
+    codex)   echo "$prompt_text" | codex exec - > "$out_file" 2>"$err_file" || rc=$? ;;
     gemini)  gemini -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
   esac
   if [[ $rc -ne 0 ]]; then
@@ -2361,9 +2361,10 @@ invoke_role() {
     codex)
       local prompt_text="$prompt_input"
       [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
-      local -a codex_cmd=(codex -q "$prompt_text")
-      [[ -n "$model" ]] && codex_cmd+=(--model "$model")
-      "${codex_cmd[@]}" 2>&1 \
+      local -a codex_cmd=(codex exec)
+      [[ -n "$model" ]] && codex_cmd+=(-m "$model")
+      codex_cmd+=(-)
+      echo "$prompt_text" | "${codex_cmd[@]}" 2>&1 \
         | tee "$output_file" \
         | tee -a "$LOG_FILE" \
         | _md_stream || exit_code=${PIPESTATUS[0]}
