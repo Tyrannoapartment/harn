@@ -13,14 +13,6 @@ Automates a **Planner → Generator → Evaluator** loop that takes a backlog it
 | `python3` | Backlog parsing, markdown rendering |
 | `copilot` or `claude` | AI agent execution |
 
-```bash
-# GitHub Copilot CLI
-npm install -g @githubnext/github-copilot-cli
-
-# or Claude Code CLI
-# https://claude.ai/code
-```
-
 ---
 
 ## Installation
