@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.1"
+HARN_VERSION="1.1.2"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -589,38 +589,38 @@ _get_models_for_backend() {
 _pick_role_model() {
   local role_label="$1" default_backend="${2:-copilot}" default_model="$3"
 
-  # Collect installed backends
-  local backends=()
-  command -v copilot &>/dev/null && backends+=("copilot")
-  command -v claude  &>/dev/null && backends+=("claude")
-  [[ ${#backends[@]} -eq 0 ]] && { log_err "No AI CLI found. Run: harn init"; return 1; }
+  local has_copilot=false has_claude=false
+  command -v copilot &>/dev/null && has_copilot=true
+  command -v claude  &>/dev/null && has_claude=true
+  [[ "$has_copilot" == "false" && "$has_claude" == "false" ]] && {
+    log_err "No AI CLI found. Run: harn init"; return 1
+  }
 
-  local selected_backend
-  if [[ ${#backends[@]} -eq 1 ]]; then
-    selected_backend="${backends[0]}"
-    echo -e "  ${D}(only ${selected_backend} installed)${N}" >&2
-  else
-    local def_bi=0
-    for i in "${!backends[@]}"; do
-      [[ "${backends[$i]}" == "$default_backend" ]] && { def_bi=$i; break; }
-    done
-    selected_backend=$(_pick_menu "AI tool for ${role_label}" "$def_bi" "${backends[@]}") || return 1
+  # Build flat combined list: "backend / model"
+  local options=()
+  if [[ "$has_copilot" == "true" ]]; then
+    while IFS= read -r m; do [[ -n "$m" ]] && options+=("copilot / $m"); done \
+      < <(_get_models_for_backend "copilot")
+  fi
+  if [[ "$has_claude" == "true" ]]; then
+    while IFS= read -r m; do [[ -n "$m" ]] && options+=("claude / $m"); done \
+      < <(_get_models_for_backend "claude")
   fi
 
-  # Collect models
-  local models=()
-  while IFS= read -r m; do [[ -n "$m" ]] && models+=("$m"); done \
-    < <(_get_models_for_backend "$selected_backend")
-
-  local def_mi=0
-  for i in "${!models[@]}"; do
-    [[ "${models[$i]}" == "$default_model" ]] && { def_mi=$i; break; }
+  # Find default index
+  local def_i=0
+  local default_str="${default_backend} / ${default_model}"
+  for i in "${!options[@]}"; do
+    [[ "${options[$i]}" == "$default_str" ]] && { def_i=$i; break; }
   done
 
-  local selected_model
-  selected_model=$(_pick_menu "Model for ${role_label} [${selected_backend}]" "$def_mi" "${models[@]}") || return 1
+  local selected
+  selected=$(_pick_menu "${role_label}" "$def_i" "${options[@]}") || return 1
 
-  printf "%s %s" "$selected_backend" "$selected_model"
+  # Parse "backend / model" → "backend model"
+  local backend="${selected%% /*}"
+  local model="${selected##*/ }"
+  printf "%s %s" "$backend" "$model"
 }
 
 # Generate a single prompt using the AI CLI
