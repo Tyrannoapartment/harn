@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.3.3"
+HARN_VERSION="1.3.4"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -231,7 +231,10 @@ def set_cbreak():
     mode[6][termios.VTIME] = 0
     termios.tcsetattr(tfd, termios.TCSANOW, mode)
 
+_first_draw = True
+
 def draw_bar(buf=''):
+    global _first_draw
     rows, cols = get_size()
     # Set scroll region (top 1 to rows-2, leaving bottom 2 for input bar)
     os.write(tfd, f'\033[1;{rows-2}r'.encode())
@@ -249,6 +252,13 @@ def draw_bar(buf=''):
     os.write(tfd, (prompt_str + display).encode())
     # Restore cursor
     os.write(tfd, b'\033[u')
+    # On first draw, clamp cursor into scroll region.
+    # log_agent_start() may have pushed stdout cursor to the very last row
+    # before the scroll region was established; restoring to that position
+    # would cause agent output to overwrite the input bar.
+    if _first_draw:
+        _first_draw = False
+        os.write(tfd, f'\033[{rows-2};1H'.encode())
 
 def on_sigterm(sig, frame):
     restore()
@@ -1828,7 +1838,6 @@ invoke_copilot() {
 
   local copilot_label="copilot"
   [[ -n "$copilot_model" ]] && copilot_label="copilot ($copilot_model)"
-  log_agent_start "$copilot_label" "$role" "output → $(basename "$output_file")"
 
   local -a copilot_cmd=(copilot --add-dir "$ROOT_DIR" --yolo -p "$prompt_text")
   [[ -n "$copilot_effort" ]] && copilot_cmd+=(--effort "$copilot_effort")
@@ -1893,15 +1902,7 @@ invoke_role() {
     fi
   fi
 
-  # Start guidance listener (bottom input bar)
-  local inbox_file=""
-  local run_id; run_id=$(current_run_id)
-  if [[ -n "$run_id" ]]; then
-    inbox_file="$HARN_DIR/runs/$run_id/inbox.md"
-    _start_guidance_listener "$inbox_file"
-  fi
-
-  # Determine backend for this specific role
+  # Determine backend for this specific role (needed before log_agent_start)
   local backend
   case "$role_detail" in
     planner)             backend="${AI_BACKEND_PLANNER:-}" ;;
@@ -1913,13 +1914,30 @@ invoke_role() {
   [[ -z "$backend" ]] && backend=$(_detect_ai_cli)
   [[ -z "$backend" ]] && backend="copilot"
 
+  # Log agent start BEFORE launching the guidance listener.
+  # This avoids a race condition where log_agent_start() pushes the terminal
+  # cursor into the bottom rows before the scroll region is established,
+  # causing subsequent agent output to overwrite the input bar.
+  local _role_label
+  case "$backend" in
+    claude)  _role_label="claude";  [[ -n "$model" ]] && _role_label="claude ($model)"  ;;
+    copilot|*) _role_label="copilot"; [[ -n "$model" ]] && _role_label="copilot ($model)" ;;
+  esac
+  log_agent_start "$_role_label" "$role_label" "output → $(basename "$output_file")"
+
+  # Start guidance listener (bottom input bar) — after the header box is drawn
+  local inbox_file=""
+  local run_id; run_id=$(current_run_id)
+  if [[ -n "$run_id" ]]; then
+    inbox_file="$HARN_DIR/runs/$run_id/inbox.md"
+    _start_guidance_listener "$inbox_file"
+  fi
+
   local exit_code=0
   case "$backend" in
     claude)
       local prompt_text="$prompt_input"
       [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
-      local label="claude"; [[ -n "$model" ]] && label="claude ($model)"
-      log_agent_start "$label" "$role_label" "output → $(basename "$output_file")"
       local -a claude_cmd=(claude -p "$prompt_text")
       [[ -n "$model" ]] && claude_cmd+=(--model "$model")
       "${claude_cmd[@]}" 2>&1 \
@@ -1927,7 +1945,7 @@ invoke_role() {
         | tee -a "$LOG_FILE" \
         | _md_stream || exit_code=${PIPESTATUS[0]}
       [[ $exit_code -ne 0 ]] && log_warn "claude exited abnormally (exit $exit_code)"
-      log_agent_done "$label"
+      log_agent_done "$_role_label"
       ;;
     copilot|*)
       local copilot_effort=""
