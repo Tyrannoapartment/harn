@@ -145,7 +145,7 @@ Select backlog item
     │  ┌─ Implement → Evaluate  (up to MAX_ITERATIONS) ─────────────┐    │
     │  │  [Generator]  implement           MODEL_GENERATOR_IMPL     │    │
     │  │      ↓   Git: commit + push                                │    │
-    │  │  [Evaluator]  dart analyze / flutter test / E2E            │    │
+    │  │  [Evaluator]  lint / test / E2E (auto-detect or configured) │    │
     │  │               VERDICT: PASS → next sprint                  │    │
     │  │               VERDICT: FAIL → Generator retries            │    │
     │  │                               (MODEL_GENERATOR_CONTRACT)   │    │
@@ -220,6 +220,11 @@ Update values:
 harn config set MAX_ITERATIONS 3
 harn config set GIT_ENABLED true
 harn config set MODEL_GENERATOR_IMPL claude-sonnet-4.6
+
+# Configure test commands (auto-detected if not set)
+harn config set LINT_COMMAND "npm run lint"
+harn config set TEST_COMMAND "npm test"
+harn config set E2E_COMMAND "docker-compose up -d && sleep 5"
 ```
 
 ---

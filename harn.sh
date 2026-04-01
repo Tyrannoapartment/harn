@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.0.6"
+HARN_VERSION="1.0.7"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -47,8 +47,18 @@ SPRINT_ROLES=""
 # Retrospective suppression flag (prevents per-item retro in harn all)
 HARN_SKIP_RETRO="false"
 
+# Configurable test/lint/E2E commands (empty = auto-detect)
+LINT_COMMAND=""
+TEST_COMMAND=""
+E2E_COMMAND=""
+
 # AI backend (copilot | claude) — set by init, overridable via AI_BACKEND env
 AI_BACKEND=""
+AI_BACKEND_PLANNER=""
+AI_BACKEND_GENERATOR_CONTRACT=""
+AI_BACKEND_GENERATOR_IMPL=""
+AI_BACKEND_EVALUATOR_CONTRACT=""
+AI_BACKEND_EVALUATOR_QA=""
 
 # Role-specific model defaults (can be overridden via config or env)
 COPILOT_MODEL_PLANNER="claude-haiku-4.5"
@@ -245,6 +255,7 @@ old = termios.tcgetattr(fd)
 tty.setraw(fd)
 chars = []
 buf = b""
+cancelled = False
 try:
     while True:
         b = fd.read(1)
@@ -257,6 +268,8 @@ try:
                 c = chars.pop(); w = cw(c)
                 fd.write(b"\x08"*w + b" "*w + b"\x08"*w); fd.flush()
         elif byte == 3:
+            raise KeyboardInterrupt
+        elif byte == 17:
             raise KeyboardInterrupt
         elif byte == 4:
             if not chars: break
@@ -274,10 +287,12 @@ try:
             except UnicodeDecodeError:
                 pass
 except KeyboardInterrupt:
-    pass
+    cancelled = True
 finally:
     termios.tcsetattr(fd, termios.TCSADRAIN, old)
 fd.close()
+if cancelled:
+    sys.exit(1)
 result = "".join(chars)
 if result: print(result, end="")
 '
@@ -343,6 +358,75 @@ finally:
 fd.close()
 if lines: print("\n".join(lines), end="")
 '
+}
+
+# Arrow-key menu selector
+# Usage: _pick_menu "prompt text" default_index item1 item2 ...
+# Stdout: selected item; exits 1 on Ctrl+Q/Ctrl+C
+_pick_menu() {
+  local menu_prompt="$1" default_idx="${2:-0}"
+  shift 2
+  local items=("$@")
+  [[ ${#items[@]} -eq 0 ]] && return 1
+  python3 -c '
+import sys, tty, termios
+
+prompt    = sys.argv[1]
+def_idx   = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+items     = sys.argv[3:]
+n         = len(items)
+if n == 0: sys.exit(1)
+idx       = min(def_idx, n - 1)
+
+fd  = open("/dev/tty", "rb+", buffering=0)
+old = termios.tcgetattr(fd)
+tty.setraw(fd)
+
+def render():
+    out = b""
+    for i, item in enumerate(items):
+        if i == idx:
+            out += f"  \033[36m\u276f\033[0m \033[1m{item}\033[0m\r\n".encode()
+        else:
+            out += f"    \033[2m{item}\033[0m\r\n".encode()
+    return out
+
+selected  = None
+cancelled = False
+try:
+    fd.write(f"\r\n  \033[1m{prompt}\033[0m\r\n".encode())
+    fd.write(b"  \033[2m(\xe2\x86\x91\xe2\x86\x93 navigate  Enter select  Ctrl+Q cancel)\033[0m\r\n\r\n")
+    fd.write(render())
+    fd.write(f"\033[{n}A".encode())
+    fd.flush()
+    while True:
+        fd.write(render())
+        fd.write(f"\033[{n}A".encode())
+        fd.flush()
+        b = fd.read(1)
+        if not b: break
+        byte = b[0]
+        if byte in (13, 10):
+            selected = items[idx]; break
+        elif byte in (17, 3):
+            cancelled = True; break
+        elif byte == 27:
+            b2 = fd.read(1)
+            if b2 == b"[":
+                b3 = fd.read(1)
+                if   b3 == b"A": idx = (idx - 1) % n
+                elif b3 == b"B": idx = (idx + 1) % n
+                elif b3 in (b"5", b"6"): fd.read(1)
+finally:
+    fd.write(f"\033[{n}B\r\n".encode())
+    fd.flush()
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    fd.close()
+if selected and not cancelled:
+    print(selected, end="")
+    sys.exit(0)
+sys.exit(1)
+' -- "$menu_prompt" "$default_idx" "${items[@]}"
 }
 
 COPILOT_MODEL_FLAG_SUPPORT=""
@@ -459,16 +543,9 @@ _select_ai_backend() {
   command -v claude   &>/dev/null && has_claude=true
 
   if [[ "$has_copilot" == "true" && "$has_claude" == "true" ]]; then
-    echo -e "\n${W}AI backend${N} — both CLIs detected:"
-    echo -e "  ${W}1${N}) copilot  (GitHub Copilot CLI)"
-    echo -e "  ${W}2${N}) claude   (Anthropic Claude CLI)"
-    printf "Choose [1]: "
-    local choice; choice=$(_input_readline); echo ""
-    if [[ "$choice" == "2" ]]; then
-      AI_BACKEND="claude"
-    else
-      AI_BACKEND="copilot"
-    fi
+    local choice
+    choice=$(_pick_menu "Default AI backend" 0 "copilot  (GitHub Copilot CLI)" "claude   (Anthropic Claude CLI)") || return 1
+    [[ "$choice" == claude* ]] && AI_BACKEND="claude" || AI_BACKEND="copilot"
   elif [[ "$has_copilot" == "true" ]]; then
     AI_BACKEND="copilot"
     echo -e "\n${G}✓${N} Using ${W}copilot${N} (GitHub Copilot CLI detected)"
@@ -476,6 +553,59 @@ _select_ai_backend() {
     AI_BACKEND="claude"
     echo -e "\n${G}✓${N} Using ${W}claude${N} (Anthropic Claude CLI detected)"
   fi
+}
+
+_get_models_for_backend() {
+  local backend="$1"
+  if [[ "$backend" == "claude" ]]; then
+    printf '%s\n' \
+      "claude-haiku-4.5" "claude-sonnet-4.5" "claude-sonnet-4.6" \
+      "claude-opus-4.5"  "claude-opus-4.6"
+  else  # copilot — supports both claude and GPT models
+    printf '%s\n' \
+      "claude-haiku-4.5" "claude-sonnet-4.5" "claude-sonnet-4.6" \
+      "claude-opus-4.5"  "claude-opus-4.6" \
+      "gpt-4.1" "gpt-4o" "gpt-4o-mini" "o1" "o3-mini"
+  fi
+}
+
+# Select AI backend + model for a role interactively.
+# Prints "backend model" on success, exits 1 on cancel.
+_pick_role_model() {
+  local role_label="$1" default_backend="${2:-copilot}" default_model="$3"
+
+  # Collect installed backends
+  local backends=()
+  command -v copilot &>/dev/null && backends+=("copilot")
+  command -v claude  &>/dev/null && backends+=("claude")
+  [[ ${#backends[@]} -eq 0 ]] && { log_err "No AI CLI found. Run: harn init"; return 1; }
+
+  local selected_backend
+  if [[ ${#backends[@]} -eq 1 ]]; then
+    selected_backend="${backends[0]}"
+    echo -e "  ${D}(only ${selected_backend} installed)${N}" >&2
+  else
+    local def_bi=0
+    for i in "${!backends[@]}"; do
+      [[ "${backends[$i]}" == "$default_backend" ]] && { def_bi=$i; break; }
+    done
+    selected_backend=$(_pick_menu "AI tool for ${role_label}" "$def_bi" "${backends[@]}") || return 1
+  fi
+
+  # Collect models
+  local models=()
+  while IFS= read -r m; do [[ -n "$m" ]] && models+=("$m"); done \
+    < <(_get_models_for_backend "$selected_backend")
+
+  local def_mi=0
+  for i in "${!models[@]}"; do
+    [[ "${models[$i]}" == "$default_model" ]] && { def_mi=$i; break; }
+  done
+
+  local selected_model
+  selected_model=$(_pick_menu "Model for ${role_label} [${selected_backend}]" "$def_mi" "${models[@]}") || return 1
+
+  printf "%s %s" "$selected_backend" "$selected_model"
 }
 
 # Generate a single prompt using the AI CLI
@@ -1564,88 +1694,60 @@ cmd_evaluate() {
   {
     cd "$ROOT_DIR"
 
-    echo "=== dart analyze ==="
-    dart analyze 2>&1 | tail -30 || true
+    # ── Static analysis / lint ──────────────────────────────────────────────
+    if [[ -n "${LINT_COMMAND:-}" ]]; then
+      echo "=== lint: $LINT_COMMAND ==="
+      eval "$LINT_COMMAND" 2>&1 | tail -30 || true
+    elif [[ -f "pubspec.yaml" ]] && command -v dart &>/dev/null; then
+      echo "=== dart analyze ==="
+      dart analyze 2>&1 | tail -30 || true
+    elif [[ -f "package.json" ]] && command -v npx &>/dev/null; then
+      echo "=== eslint / tsc ==="
+      (npx tsc --noEmit 2>&1 | tail -20 || true)
+    elif command -v go &>/dev/null && [[ -f "go.mod" ]]; then
+      echo "=== go vet ==="
+      go vet ./... 2>&1 | tail -20 || true
+    else
+      echo "(lint: no LINT_COMMAND configured — skipped)"
+    fi
     echo ""
 
-    # If last sprint (test sprint), start services + run E2E evaluation
+    # ── Unit / integration tests (last sprint only) ──────────────────────────
     local total
     total=$(count_sprints_in_backlog "$run_dir/sprint-backlog.md")
     if [[ "$sprint_num" -eq "$total" ]]; then
 
-      echo "=== flutter test (unit/widget tests) ==="
-      flutter test --reporter compact 2>&1 | tail -50 || true
-      echo ""
-
-      # ── Start backend server ──────────────────────────────────────────
-      echo "=== Backend server starting (port 8080) ==="
-      local backend_pid=""
-      if [[ -f "$ROOT_DIR/services/backend/bin/main.dart" ]]; then
-        PORT=8080 dart run "$ROOT_DIR/services/backend/bin/main.dart" \
-          >> "$sprint/backend.log" 2>&1 &
-        backend_pid=$!
-        echo "Backend PID: $backend_pid"
-        # Wait for ready (up to 30 seconds)
-        local i=0
-        while [[ $i -lt 30 ]]; do
-          curl -sf http://localhost:8080/health > /dev/null 2>&1 && break || true
-          sleep 1; i=$(( i + 1 ))
-        done
-        curl -sf http://localhost:8080/health > /dev/null 2>&1 \
-          && echo "Backend ready" \
-          || echo "Backend health check failed — log: $sprint/backend.log"
+      if [[ -n "${TEST_COMMAND:-}" ]]; then
+        echo "=== tests: $TEST_COMMAND ==="
+        eval "$TEST_COMMAND" 2>&1 | tail -50 || true
+      elif [[ -f "pubspec.yaml" ]] && command -v flutter &>/dev/null; then
+        echo "=== flutter test ==="
+        flutter test --reporter compact 2>&1 | tail -50 || true
+      elif [[ -f "package.json" ]] && grep -q '"test"' package.json; then
+        echo "=== npm test ==="
+        npm test --if-present 2>&1 | tail -50 || true
+      elif [[ -f "Cargo.toml" ]] && command -v cargo &>/dev/null; then
+        echo "=== cargo test ==="
+        cargo test 2>&1 | tail -50 || true
+      elif command -v pytest &>/dev/null; then
+        echo "=== pytest ==="
+        pytest 2>&1 | tail -50 || true
+      elif [[ -f "go.mod" ]] && command -v go &>/dev/null; then
+        echo "=== go test ==="
+        go test ./... 2>&1 | tail -50 || true
+      else
+        echo "(tests: no TEST_COMMAND configured — skipped)"
+        echo "Set TEST_COMMAND in .harness_config to enable automated tests"
       fi
       echo ""
 
-      # ── Start MCP server (HTTP mode) ──────────────────────────────────
-      echo "=== MCP server starting (port 8181) ==="
-      local mcp_pid=""
-      if [[ -f "$ROOT_DIR/services/mcp/bin/server_http.dart" ]]; then
-        PORT=8181 dart run "$ROOT_DIR/services/mcp/bin/server_http.dart" \
-          >> "$sprint/mcp.log" 2>&1 &
-        mcp_pid=$!
-        echo "MCP PID: $mcp_pid"
-        sleep 3
-        echo "MCP server started"
+      # ── E2E environment (optional) ─────────────────────────────────────────
+      if [[ -n "${E2E_COMMAND:-}" ]]; then
+        echo "=== E2E setup: $E2E_COMMAND ==="
+        eval "$E2E_COMMAND" 2>&1 | tail -30 || true
+        echo "=== E2E environment ready ==="
+        echo ""
       fi
-      echo ""
-
-      # ── Start Flutter web app ──────────────────────────────────────────
-      echo "=== Flutter web app starting (port 3000) ==="
-      local flutter_pid=""
-      local flutter_app_dir="$ROOT_DIR/apps/mobile"
-      [[ -d "$ROOT_DIR/apps/web" ]] && flutter_app_dir="$ROOT_DIR/apps/web"
-      cd "$flutter_app_dir"
-      flutter run -d web-server \
-        --web-port 3000 \
-        --dart-define=API_BASE_URL=http://localhost:8080 \
-        >> "$sprint/flutter-web.log" 2>&1 &
-      flutter_pid=$!
-      echo "Flutter web PID: $flutter_pid"
-      # Wait for ready (up to 120 seconds)
-      local j=0
-      while [[ $j -lt 120 ]]; do
-        curl -sf http://localhost:3000 > /dev/null 2>&1 && break || true
-        sleep 1; j=$(( j + 1 ))
-      done
-      curl -sf http://localhost:3000 > /dev/null 2>&1 \
-        && echo "Flutter web ready — http://localhost:3000" \
-        || echo "Flutter web startup failed — log: $sprint/flutter-web.log"
-      cd "$ROOT_DIR"
-      echo ""
-
-      # Record started service URLs (for Evaluator to access via Playwright MCP)
-      {
-        echo "BACKEND_URL=http://localhost:8080"
-        echo "MCP_URL=http://localhost:8181"
-        echo "APP_URL=http://localhost:3000"
-        [[ -n "$backend_pid" ]] && echo "BACKEND_PID=$backend_pid"
-        [[ -n "$mcp_pid" ]]    && echo "MCP_PID=$mcp_pid"
-        [[ -n "$flutter_pid" ]] && echo "FLUTTER_PID=$flutter_pid"
-      } > "$sprint/e2e-env.txt"
-      echo "=== E2E environment ready ==="
-      cat "$sprint/e2e-env.txt"
-      echo ""
     fi
   } > "$test_results"
   log_info "Checks complete → $test_results"
@@ -1691,14 +1793,11 @@ Write exactly one line at the end of the report:
   local eval_exit_code=0
   invoke_role "evaluator" "$eval_prompt" "$sprint/qa-report.md" "Evaluator — Sprint $sprint_num QA (iteration $iteration)" "inline" "$COPILOT_MODEL_EVALUATOR_QA" || eval_exit_code=$?
 
-  # Clean up background processes for E2E tests
+  # Clean up background processes tracked in e2e-env.txt (if any)
   if [[ -f "$sprint/e2e-env.txt" ]]; then
     log_info "Shutting down E2E environment..."
     while IFS='=' read -r key val; do
-      case "$key" in
-        BACKEND_PID|MCP_PID|FLUTTER_PID)
-          kill "$val" 2>/dev/null && log_info "$key ($val) stopped" || true ;;
-      esac
+      [[ "$key" == *_PID ]] && kill "$val" 2>/dev/null && log_info "$key ($val) stopped" || true
     done < "$sprint/e2e-env.txt"
   fi
 
