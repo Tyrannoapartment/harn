@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.2.0"
+HARN_VERSION="1.3.0"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -51,6 +51,7 @@ GIT_AUTO_MERGE="false"
 CUSTOM_PROMPTS_DIR=""
 SPRINT_COUNT=2
 SPRINT_ROLES=""
+HARN_LANG=""          # set by _detect_lang(); ko | en
 
 # Retrospective suppression flag (prevents per-item retro in harn all)
 HARN_SKIP_RETRO="false"
@@ -775,6 +776,67 @@ print_model_config() {
 
 # ── Config loading ──────────────────────────────────────────────────────────────
 
+# Detect language: env HARN_LANG → config LANG_OVERRIDE → $LANG/$LC_ALL → en
+_detect_lang() {
+  # 1. Explicit env var
+  if [[ -n "${HARN_LANG:-}" ]]; then
+    HARN_LANG="${HARN_LANG}"
+    return
+  fi
+  # 2. Config file override (read directly — load_config may not have run yet)
+  if [[ -f "$CONFIG_FILE" ]]; then
+    local cfg_lang
+    cfg_lang=$(grep -E '^LANG_OVERRIDE=' "$CONFIG_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+    if [[ -n "$cfg_lang" ]]; then
+      HARN_LANG="$cfg_lang"
+      return
+    fi
+  fi
+  # 3. System locale
+  local sys_locale="${LANG:-${LC_ALL:-}}"
+  if [[ "$sys_locale" == ko* ]]; then
+    HARN_LANG="ko"
+    return
+  fi
+  # 4. Default
+  HARN_LANG="en"
+}
+
+# Set UI string variables based on HARN_LANG
+_i18n_load() {
+  if [[ "$HARN_LANG" == "ko" ]]; then
+    I18N_LANG_NAME="한국어"
+    I18N_INIT_LANG_PROMPT="사용 언어"
+    I18N_INIT_BACKLOG_PROMPT="백로그 파일 경로 (프로젝트 루트 기준)"
+    I18N_INIT_BACKLOG_DEFAULT="sprint-backlog.md"
+    I18N_INIT_MAX_QA_PROMPT="최대 QA 재시도 횟수"
+    I18N_INIT_GIT_PROMPT="Git 통합 활성화"
+    I18N_INIT_SAVED="설정이 저장됐어요"
+    I18N_DOCTOR_TITLE="harn 환경 진단"
+    I18N_DOCTOR_OK="정상"
+    I18N_DOCTOR_WARN="경고"
+    I18N_DOCTOR_FAIL="실패"
+    I18N_CONFIG_SET_DONE="설정 저장됨"
+    I18N_CONFIG_SET_USAGE="사용법: harn config set <key> <value>"
+    I18N_LANG_SELECT="사용할 언어를 선택하세요"
+  else
+    I18N_LANG_NAME="English"
+    I18N_INIT_LANG_PROMPT="Language"
+    I18N_INIT_BACKLOG_PROMPT="Backlog file path (relative to project root)"
+    I18N_INIT_BACKLOG_DEFAULT="sprint-backlog.md"
+    I18N_INIT_MAX_QA_PROMPT="Max QA retry count"
+    I18N_INIT_GIT_PROMPT="Enable Git integration"
+    I18N_INIT_SAVED="Configuration saved"
+    I18N_DOCTOR_TITLE="harn environment check"
+    I18N_DOCTOR_OK="OK"
+    I18N_DOCTOR_WARN="WARN"
+    I18N_DOCTOR_FAIL="FAIL"
+    I18N_CONFIG_SET_DONE="Config saved"
+    I18N_CONFIG_SET_USAGE="Usage: harn config set <key> <value>"
+    I18N_LANG_SELECT="Select language"
+  fi
+}
+
 load_config() {
   [[ ! -f "$CONFIG_FILE" ]] && return
 
@@ -808,11 +870,26 @@ load_config() {
   SPRINT_COUNT="${SPRINT_COUNT:-2}"
   SPRINT_ROLES="${SPRINT_ROLES:-}"
 
-  # Apply custom prompts directory
+  # Re-detect language after config is sourced (LANG_OVERRIDE now available)
+  _detect_lang
+  _i18n_load
+  # Set lang-aware PROMPTS_DIR (builtin: $SCRIPT_DIR/prompts/$HARN_LANG, fallback to en)
+  local lang_dir="$SCRIPT_DIR/prompts/$HARN_LANG"
+  if [[ -d "$lang_dir" ]]; then
+    PROMPTS_DIR="$lang_dir"
+  else
+    PROMPTS_DIR="$SCRIPT_DIR/prompts/en"
+  fi
+
+  # Apply custom prompts directory (overrides lang-aware dir)
   if [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]]; then
     local custom_abs="$CUSTOM_PROMPTS_DIR"
     [[ "${CUSTOM_PROMPTS_DIR}" != /* ]] && custom_abs="$ROOT_DIR/$CUSTOM_PROMPTS_DIR"
-    [[ -d "$custom_abs" ]] && PROMPTS_DIR="$custom_abs"
+    if [[ -d "$custom_abs/$HARN_LANG" ]]; then
+      PROMPTS_DIR="$custom_abs/$HARN_LANG"
+    elif [[ -d "$custom_abs" ]]; then
+      PROMPTS_DIR="$custom_abs"
+    fi
   fi
 }
 
@@ -1025,13 +1102,82 @@ cmd_init() {
     [[ "$ow" == "y" || "$ow" == "Y" ]] || { log_info "Initialization cancelled"; return 0; }
   fi
 
+  # ── Language selection ─────────────────────────────────────────────────────────
+  echo -e "\n${W}Language / 언어${N}"
+  local _lang_choice
+  _lang_choice=$(python3 - "" \
+    "en:English" \
+    "ko:한국어" \
+    "" "" "" \
+    <<'PYEOF'
+import sys, os, tty, termios, select
+
+prompt   = sys.argv[1]
+options  = [a for a in sys.argv[2:] if a]  # filter empty sentinel args
+labels   = [o.split(":",1)[1] for o in options]
+values   = [o.split(":",1)[0] for o in options]
+selected = 0
+
+def draw(sel):
+    sys.stdout.write("\033[2K\r")
+    for i, lb in enumerate(labels):
+        if i == sel:
+            sys.stdout.write(f"  \033[1;32m❯ {lb}\033[0m\n")
+        else:
+            sys.stdout.write(f"    {lb}\n")
+    sys.stdout.write(f"\033[{len(labels)}A")
+    sys.stdout.flush()
+
+fd = sys.stdin.fileno()
+try:
+    old = termios.tcgetattr(fd)
+except Exception:
+    print(values[0]); sys.exit(0)
+
+tty.setraw(fd)
+try:
+    draw(selected)
+    while True:
+        r, _, _ = select.select([sys.stdin], [], [], 0.1)
+        if not r:
+            continue
+        ch = sys.stdin.read(1)
+        if ch == "\x03":
+            sys.stdout.write("\n" * len(labels))
+            sys.exit(1)
+        if ch == "\r" or ch == "\n":
+            break
+        if ch == "\x1b":
+            ch2 = sys.stdin.read(1)
+            if ch2 == "[":
+                ch3 = sys.stdin.read(1)
+                if ch3 == "A":
+                    selected = (selected - 1) % len(labels)
+                elif ch3 == "B":
+                    selected = (selected + 1) % len(labels)
+        draw(selected)
+finally:
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+sys.stdout.write("\n" * len(labels))
+print(values[selected])
+PYEOF
+  ) || { log_info "Init cancelled"; return 0; }
+  local selected_lang="${_lang_choice}"
+  HARN_LANG="$selected_lang"
+  _i18n_load
+  # Update PROMPTS_DIR to match selected lang
+  local _ldir="$SCRIPT_DIR/prompts/$HARN_LANG"
+  [[ -d "$_ldir" ]] && PROMPTS_DIR="$_ldir" || PROMPTS_DIR="$SCRIPT_DIR/prompts/en"
+  echo ""
+
   # ── Project basic settings ───────────────────────────────────────────────────
-  local bf_default="sprint-backlog.md"
-  printf "Backlog file path (relative to project root) [%s]: " "$bf_default"
+  local bf_default="$I18N_INIT_BACKLOG_DEFAULT"
+  printf "%s [%s]: " "$I18N_INIT_BACKLOG_PROMPT" "$bf_default"
   local bf_input; bf_input=$(_input_readline); echo ""
   local bf="${bf_input:-$bf_default}"
 
-  printf "Max QA retry count [5]: "
+  printf "%s [5]: " "$I18N_INIT_MAX_QA_PROMPT"
   local mi_input; mi_input=$(_input_readline); echo ""
   local mi="${mi_input:-5}"
 
@@ -1163,6 +1309,7 @@ cmd_init() {
 # project: $ROOT_DIR
 
 # === Project settings ===
+LANG_OVERRIDE="${selected_lang}"
 BACKLOG_FILE="${bf}"
 MAX_ITERATIONS=${mi}
 SPRINT_COUNT=${sc}
@@ -3250,6 +3397,7 @@ cmd_config() {
     show)
       echo -e "${W}harn Configuration${N}  (${CONFIG_FILE})"
       echo -e "  Project:           ${W}$ROOT_DIR${N}"
+      echo -e "  Language:          ${W}$HARN_LANG${N}  ($I18N_LANG_NAME)"
       echo -e "  Backlog file:      ${W}$BACKLOG_FILE${N}"
       echo -e "  Max retries:       ${W}$MAX_ITERATIONS${N}"
       echo -e "  Git integration:   ${W}$GIT_ENABLED${N}"
@@ -3270,17 +3418,20 @@ cmd_config() {
       ;;
     set)
       local key="${2:-}" val="${3:-}"
-      [[ -z "$key" || -z "$val" ]] && { log_err "Usage: harn config set KEY VALUE"; exit 1; }
+      [[ -z "$key" || -z "$val" ]] && { log_err "$I18N_CONFIG_SET_USAGE"; exit 1; }
       if [[ ! -f "$CONFIG_FILE" ]]; then
         log_err "No .harn_config file. Run ${W}harn init${N} first."
         exit 1
       fi
-      if grep -q "^${key}=" "$CONFIG_FILE"; then
-        sed -i '' "s|^${key}=.*|${key}=\"${val}\"|" "$CONFIG_FILE"
+      # LANG → write as LANG_OVERRIDE
+      local cfg_key="$key"
+      [[ "$key" == "LANG" ]] && cfg_key="LANG_OVERRIDE"
+      if grep -q "^${cfg_key}=" "$CONFIG_FILE"; then
+        sed -i '' "s|^${cfg_key}=.*|${cfg_key}=\"${val}\"|" "$CONFIG_FILE"
       else
-        echo "${key}=\"${val}\"" >> "$CONFIG_FILE"
+        echo "${cfg_key}=\"${val}\"" >> "$CONFIG_FILE"
       fi
-      log_ok "${W}${key}${N} = \"${val}\" set"
+      log_ok "${W}${cfg_key}${N} = \"${val}\" set"
       ;;
     regen)
       if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -3447,6 +3598,18 @@ while [[ $# -gt 0 ]]; do
 done
 
 validate_role_models
+
+# Initial lang detection (before config loads — ensures UI strings are available)
+_detect_lang
+_i18n_load
+# Set initial PROMPTS_DIR from detected lang
+_lang_dir="$SCRIPT_DIR/prompts/$HARN_LANG"
+if [[ -d "$_lang_dir" ]]; then
+  PROMPTS_DIR="$_lang_dir"
+else
+  PROMPTS_DIR="$SCRIPT_DIR/prompts/en"
+fi
+unset _lang_dir
 
 # ── Config load / first-run detection ────────────────────────────────────────
 _cmd="${1:-help}"
