@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.3.6"
+HARN_VERSION="1.4.0"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -211,13 +211,9 @@ except Exception:
 
 def restore():
     try:
-        os.write(tfd, b'\0337')            # save cursor (fallback)
         rows, cols = get_size()
-        # Clear scroll region
         os.write(tfd, b'\033[r')
-        # Clear bottom 2 rows
         os.write(tfd, f'\033[{rows-1};1H\033[2K\033[{rows};1H\033[2K'.encode())
-        # Show cursor, restore attrs
         os.write(tfd, b'\033[?25h')
         termios.tcsetattr(tfd, termios.TCSANOW, orig_attrs)
     except Exception:
@@ -255,33 +251,36 @@ def get_cursor_row():
 
 def draw_bar(buf=''):
     global _first_draw
-    rows, cols = get_size()
-    # Set scroll region (top 1 to rows-2, leaving bottom 2 for input bar)
-    os.write(tfd, f'\033[1;{rows-2}r'.encode())
-    # Save cursor
-    os.write(tfd, b'\033[s')
-    # Draw separator line (row rows-1)
-    sep = ('─' * cols)
-    os.write(tfd, f'\033[{rows-1};1H\033[2K\033[2m{sep}\033[0m'.encode())
-    # Draw input row (row rows)
-    os.write(tfd, f'\033[{rows};1H\033[2K'.encode())
-    prompt_str = '  \033[1;35m💬\033[0m  \033[1m>\033[0m  '
-    prompt_visible = 8  # visual width of prompt
-    avail = cols - prompt_visible - 1
-    display = buf[-avail:] if len(buf) > avail else buf
-    os.write(tfd, (prompt_str + display).encode())
-    # Restore cursor
-    os.write(tfd, b'\033[u')
-    # On first draw: if the cursor is outside the scroll region (i.e. in the
-    # protected bottom rows) clamp it to rows-2 so agent output doesn't
-    # overwrite the input bar. We query the actual cursor position first so
-    # we only clamp when necessary — unconditional clamping would scroll the
-    # log_agent_start box off-screen when it was already in the safe area.
-    if _first_draw:
-        _first_draw = False
-        cur_row = get_cursor_row()
-        if cur_row is not None and cur_row >= rows - 1:
-            os.write(tfd, f'\033[{rows-2};1H'.encode())
+    try:
+        rows, cols = get_size()
+        # Set scroll region (top 1 to rows-2, leaving bottom 2 for input bar)
+        os.write(tfd, f'\033[1;{rows-2}r'.encode())
+        # Save cursor
+        os.write(tfd, b'\033[s')
+        # Draw separator line (row rows-1)
+        sep = ('─' * cols)
+        os.write(tfd, f'\033[{rows-1};1H\033[2K\033[2m{sep}\033[0m'.encode())
+        # Draw input row (row rows)
+        os.write(tfd, f'\033[{rows};1H\033[2K'.encode())
+        prompt_str = '  \033[1;35m💬\033[0m  \033[1m>\033[0m  '
+        prompt_visible = 8  # visual width of prompt
+        avail = cols - prompt_visible - 1
+        display = buf[-avail:] if len(buf) > avail else buf
+        os.write(tfd, (prompt_str + display).encode('utf-8', 'replace'))
+        # Restore cursor
+        os.write(tfd, b'\033[u')
+        # On first draw: if the cursor is outside the scroll region (i.e. in the
+        # protected bottom rows) clamp it to rows-2 so agent output doesn't
+        # overwrite the input bar. We query the actual cursor position first so
+        # we only clamp when necessary — unconditional clamping would scroll the
+        # log_agent_start box off-screen when it was already in the safe area.
+        if _first_draw:
+            _first_draw = False
+            cur_row = get_cursor_row()
+            if cur_row is not None and cur_row >= rows - 1:
+                os.write(tfd, f'\033[{rows-2};1H'.encode())
+    except OSError:
+        pass
 
 def on_sigterm(sig, frame):
     restore()
@@ -315,7 +314,10 @@ try:
             continue
         if not r:
             continue
-        chunk = os.read(tfd, 64)
+        try:
+            chunk = os.read(tfd, 64)
+        except OSError:
+            break
         if not chunk:
             break
         pending += chunk
@@ -561,9 +563,9 @@ _ask_user_instructions() {
   [[ ! -t 1 ]] && return 0
 
   echo -e "" >/dev/tty
-  echo -e "${B}  ╭─ 💬 Additional instructions${N}" >/dev/tty
-  echo -e "${B}  │${N}  Enter instructions to pass to ${W}${context}${N}." >/dev/tty
-  echo -e "${B}  │${N}  ${D}Empty line = skip  ·  Multi-line input supported${N}" >/dev/tty
+  echo -e "${B}  ╭─ ${I18N_INSTRUCTIONS_TITLE}${N}" >/dev/tty
+  printf "${B}  │${N}  $(printf "$I18N_INSTRUCTIONS_ENTER" "${W}${context}${N}")\n" >/dev/tty
+  echo -e "${B}  │${N}  ${D}${I18N_INSTRUCTIONS_HINT}${N}" >/dev/tty
   echo -e "${B}  ╰${N}" >/dev/tty
 
   local content
@@ -574,7 +576,7 @@ _ask_user_instructions() {
 ## User Instructions ($(_ts))
 
 ${content}"
-    echo -e "  ${G}✓${N}  Will be passed to the next agent." >/dev/tty
+    echo -e "  ${G}${I18N_INSTRUCTIONS_PASSED}${N}" >/dev/tty
     echo -e "" >/dev/tty
   fi
 }
@@ -627,11 +629,17 @@ try:
                 fd.write(c.encode("utf-8")); fd.flush()
             except UnicodeDecodeError:
                 pass
-except KeyboardInterrupt:
+except (KeyboardInterrupt, OSError):
     cancelled = True
 finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)
-fd.close()
+    try:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except Exception:
+        pass
+try:
+    fd.close()
+except Exception:
+    pass
 if cancelled:
     sys.exit(1)
 result = "".join(chars)
@@ -692,11 +700,17 @@ try:
         if line is None: break
         if line == "": break
         lines.append(line)
-except KeyboardInterrupt:
+except (KeyboardInterrupt, OSError):
     pass
 finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)
-fd.close()
+    try:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except Exception:
+        pass
+try:
+    fd.close()
+except Exception:
+    pass
 if lines: print("\n".join(lines), end="")
 '
 }
@@ -948,6 +962,219 @@ _i18n_load() {
     I18N_AI_BACKEND_TITLE="기본 AI 백엔드"
     I18N_AI_USING_COPILOT="${G}✓${N} ${W}copilot${N} 사용 (GitHub Copilot CLI 감지됨)"
     I18N_AI_USING_CLAUDE="${G}✓${N} ${W}claude${N} 사용 (Anthropic Claude CLI 감지됨)"
+    # cmd_backlog
+    I18N_BACKLOG_TITLE="대기 중인 백로그 항목:"
+    I18N_BACKLOG_EMPTY="(없음 — 모두 완료!)"
+    I18N_BACKLOG_RUN="실행: ${W}harn start${N} — 항목을 선택해 전체 루프를 시작하세요"
+    # cmd_start
+    I18N_START_SELECT_ITEM="백로그 항목 선택"
+    I18N_START_NO_PENDING="대기 중인 항목이 없습니다. 먼저 항목을 추가하세요."
+    I18N_START_DISCOVER_HINT="항목 발굴: harn discover"
+    I18N_START_ENTER_NUM="번호를 입력하세요 (1–%s): "
+    I18N_START_SELECTED="선택됨:"
+    I18N_START_INVALID="잘못된 입력:"
+    I18N_START_RUN_CREATED="실행 생성됨:"
+    I18N_START_VIEW_LOG="실시간 로그 보기: ${W}harn tail${N}  →"
+    I18N_START_PLAN_FAILED="플래닝 단계에서 실패했습니다. 로그를 확인하고 재시도하세요:"
+    I18N_START_AUTO_LOOP="자동 실행 시작"
+    I18N_START_LOOP_DETAIL="초기화 완료. 스프린트 루프를 자동으로 실행합니다 (contract → implement → evaluate → next, 최대 %s 스프린트)."
+    I18N_START_LOOP_INTERRUPTED="스프린트 루프가 중단됐습니다. 실패 지점을 확인하고 재개하세요: 'harn resume %s'"
+    I18N_START_COMPLETE="harn start 전체 자동 실행 완료"
+    I18N_START_MAX_SPRINT="최대 스프린트 수(%s)에 도달했습니다. 계속하려면 'harn start'를 실행하세요."
+    # cmd_plan
+    I18N_PLAN_STEP="플래닝 단계"
+    I18N_PLAN_TEXT_NOT_FOUND="plan.text를 찾을 수 없음 — 슬러그/프롬프트를 플랜 텍스트로 사용"
+    I18N_PLAN_MARKERS_NOT_FOUND="섹션 마커를 찾을 수 없음 — 전체 출력을 spec.md로 저장"
+    I18N_PLAN_ITEM_IN_PROGRESS="백로그: ${W}%s${N} → 진행 중"
+    I18N_PLAN_LINE_UPDATED="백로그 플랜 라인 업데이트됨:"
+    I18N_PLAN_LINE_FAILED="백로그 플랜 업데이트 실패: 슬러그를 찾을 수 없음"
+    I18N_PLAN_LINE_UNCHANGED="백로그 플랜 라인 변경 없음 (이미 최신)"
+    I18N_PLAN_LINE_EXCEPTION="백로그 플랜 업데이트 중 오류 발생"
+    I18N_PLAN_COMPLETE="플래닝 완료"
+    # cmd_contract
+    I18N_CONTRACT_EXISTS="스코프가 이미 존재합니다. 재생성하려면 삭제하세요:"
+    I18N_CONTRACT_STEP="스프린트 %s — 스코프 협상"
+    I18N_CONTRACT_REVIEWING="이밸류에이터가 스코프 검토 중..."
+    I18N_CONTRACT_APPROVED="스프린트 %s 스코프 승인됨"
+    I18N_CONTRACT_NEEDS_REVISION="스코프 수정 필요 — 수정 중..."
+    I18N_CONTRACT_REVISED="스프린트 %s 스코프 수정 완료"
+    I18N_CONTRACT_NEXT="다음 단계: harn implement"
+    # cmd_implement
+    I18N_IMPL_NO_SCOPE="스프린트 %s의 스코프가 없습니다. 실행: harn contract"
+    I18N_IMPL_STEP="스프린트 %s — 개발 (반복 %s)"
+    I18N_IMPL_COMPLETE="스프린트 %s 구현 완료 (반복 %s)"
+    I18N_IMPL_NEXT="다음 단계: harn evaluate"
+    # cmd_evaluate
+    I18N_EVAL_NO_IMPL="스프린트 %s의 구현체가 없습니다. 실행: harn implement"
+    I18N_EVAL_STEP="스프린트 %s — 평가 (반복 %s)"
+    I18N_EVAL_RUNNING_CHECKS="자동화 검사 실행 중..."
+    I18N_EVAL_CHECKS_DONE="검사 완료 →"
+    I18N_EVAL_SHUTTING_DOWN="E2E 환경 종료 중..."
+    I18N_EVAL_EXEC_ERROR="스프린트 %s: 이밸류에이터 실행 오류 (종료 코드 %s) — 루프 중단"
+    I18N_EVAL_MANUAL_RESUME="수동 재개: 문제를 수정한 후 harn evaluate 또는 harn implement를 실행하세요"
+    I18N_EVAL_PASS="스프린트 %s: ${G}PASS${N}"
+    I18N_EVAL_NEXT="다음 단계: harn next"
+    I18N_EVAL_FAIL="스프린트 %s: QA ${Y}FAIL${N} (반복 %s / %s) — 자동 재시도 중... (리포트: %s)"
+    # cmd_next
+    I18N_NEXT_STEP="마무리"
+    I18N_NEXT_DONE="백로그: ${W}%s${N} → 완료"
+    I18N_NEXT_COMPLETE="${G}태스크 완전 완료: %s${N}"
+    # _sprint_advance
+    I18N_SPRINT_SWITCH="스프린트 %s로 전환"
+    # cmd_stop
+    I18N_STOP_NO_PID="실행 중인 프로세스를 찾을 수 없습니다 (PID 파일 없음)"
+    I18N_STOP_ALREADY_HINT="이미 중단됐거나 harn start로 시작되지 않은 프로세스입니다."
+    I18N_STOP_STALE_PID="PID=%s 프로세스가 이미 중단됨 — PID 파일 정리 중"
+    I18N_STOP_STOPPING="프로세스 중단 중... (PID: ${W}%s${N})"
+    I18N_STOP_SIGKILL="SIGTERM 후에도 실행 중 — SIGKILL 전송 중"
+    I18N_STOP_RUN_STOPPED="실행 중단됨"
+    I18N_STOP_DONE="프로세스 중단됨"
+    # git helpers
+    I18N_GIT_NO_HEAD="Git: HEAD를 확인할 수 없음 — 건너뜀"
+    I18N_GIT_CURRENT_BRANCH="Git: 현재 브랜치에서 작업 중 ${W}%s${N} (base=current 모드)"
+    I18N_GIT_CREATING_BRANCH="Git: 플래닝 브랜치 생성 중"
+    I18N_GIT_NO_HEAD_BRANCH="Git: HEAD를 확인할 수 없음 — 브랜치 생성 건너뜀"
+    I18N_GIT_BRANCH_EXISTS="브랜치 ${W}%s${N} 이미 존재 — 체크아웃 중"
+    I18N_GIT_BRANCH_CREATED="브랜치 생성됨: ${W}%s${N}"
+    I18N_GIT_BACKLOG_COMMITTED="스프린트 백로그 커밋됨"
+    I18N_GIT_BACKLOG_UNCHANGED="백로그 파일 변경 없음 — 커밋 건너뜀"
+    I18N_GIT_PUSH_FAILED_PR="Push 실패 — Draft PR 생성 건너뜀. 수동으로 Push 후 PR을 생성하세요."
+    I18N_GIT_BRANCH_PUSHED="브랜치 Push됨: origin/${W}%s${N}"
+    I18N_GIT_PR_CREATING="Draft PR 생성 중... (base: ${W}%s${N}, head: ${W}%s${N})"
+    I18N_GIT_PR_CREATED="Draft PR 생성됨:"
+    I18N_GIT_PR_FAILED="PR 생성 실패 — 수동으로 생성하세요"
+    I18N_GIT_PR_CREATE_FAILED="gh pr create 실패 — 수동으로 PR을 생성하세요 (%s → %s)"
+    I18N_GIT_IMPL_COMMIT="Git: 스프린트 %s 구현 커밋"
+    I18N_GIT_NO_CHANGES="커밋할 변경 사항 없음 — 제너레이터가 파일을 수정하지 않았을 수 있습니다"
+    I18N_GIT_COMMIT_DONE="커밋 완료: ${W}%s${N}"
+    I18N_GIT_PUSH_DONE="Push 완료: origin/${W}%s${N}"
+    I18N_GIT_PUSH_FAILED="Push 실패 — 실행: git push origin %s"
+    I18N_GIT_NO_HEAD_PUSH="Git: HEAD를 확인할 수 없음 — Push 건너뜀"
+    I18N_GIT_SPRINT_PASS_PUSH="Git: 스프린트 %s 통과 — origin/${W}%s${N}에 Push 중"
+    I18N_GIT_NO_FEAT_BRANCH="Git: 병합할 피처 브랜치를 찾을 수 없음 (현재: %s)"
+    I18N_GIT_FINALIZE="Git 최종화: ${W}%s${N} → ${W}%s${N}"
+    I18N_GIT_AUTO_COMMIT="미커밋 변경 사항 자동 커밋 중..."
+    I18N_GIT_UPDATE_PR="PR 업데이트 중: origin/${W}%s${N} Push 중..."
+    I18N_GIT_PUSH_FAILED_MANUAL="Push 실패 — PR을 수동으로 병합하세요"
+    I18N_GIT_PR_MERGING="PR 병합 중 (non-squash): ${W}%s${N}"
+    I18N_GIT_PR_MERGED="PR 병합 완료: ${W}%s${N} → ${W}%s${N}"
+    I18N_GIT_PR_MERGE_FAILED="gh pr merge 실패 — GitHub에서 수동으로 병합 후 계속하세요"
+    I18N_GIT_RETURN_BASE="기본 브랜치로 돌아가는 중: ${W}%s${N}"
+    I18N_GIT_PULLING="Pull 중: origin/${W}%s${N}..."
+    I18N_GIT_PULL_DONE="Pull 완료: origin/${W}%s${N}"
+    I18N_GIT_PULL_FAILED="Pull 실패 — 실행: git pull origin %s"
+    # cmd_retrospective
+    I18N_RETRO_NO_CLI="AI CLI 없음 — 회고 건너뜀"
+    I18N_RETRO_STEP="회고"
+    I18N_RETRO_ANALYZING="AI(${W}%s${N}) 회고 분석 중..."
+    I18N_RETRO_FAILED="회고 생성 실패 — 건너뜀"
+    I18N_RETRO_SUMMARY_TITLE="  회고 요약"
+    I18N_RETRO_PROMPT_ADD="  %s 프롬프트에 이 제안을 추가할까요? [y/N]: "
+    I18N_RETRO_ADDED="%s 프롬프트에 추가됨: ${W}%s${N}"
+    I18N_RETRO_SKIPPED="%s 제안 건너뜀"
+    I18N_RETRO_APPLIED="프롬프트 개선 사항 적용됨."
+    I18N_RETRO_COMPLETE="회고 완료 — 결과: ${W}%s${N}"
+    # _run_sprint_loop
+    I18N_LOOP_STARTED="루프 시작 (최대 %s 스프린트)"
+    I18N_LOOP_INTERRUPTED="사용자에 의해 중단됨."
+    I18N_LOOP_TERMINATED="종료 신호를 받았습니다."
+    I18N_LOOP_SPRINT_PASSED="스프린트 %s 이미 완료 — 다음으로 이동"
+    I18N_LOOP_SPRINT_MAX_ITER="스프린트 %s가 최대 반복 횟수(%s)에 도달 — 강제 진행"
+    I18N_LOOP_EVAL_ERROR="이밸류에이터 오류 — 루프 중단. 문제를 수정한 후 harn evaluate를 실행하세요."
+    I18N_LOOP_MAX_ITER_ADVANCE="스프린트 %s: 최대 반복 횟수(%s) 도달 — QA 통과 없이 강제 진행"
+    I18N_LOOP_ALL_COMPLETE="${G}전체 %s 스프린트 완료!${N}"
+    I18N_LOOP_SPRINT_DONE="스프린트 %s 완료 — 스프린트 %s로 전환"
+    # cmd_discover
+    I18N_DISCOVER_STEP="백로그 발굴 — 코드베이스 분석"
+    I18N_DISCOVER_NO_ITEMS="새 항목을 추출할 수 없습니다 — 확인하세요: %s"
+    I18N_DISCOVER_BACKLOG_CREATED="백로그 파일 생성됨:"
+    I18N_DISCOVER_ADDED="백로그에 새 항목 추가됨"
+    I18N_DISCOVER_HINT="확인: harn backlog   /   지금 시작: harn auto"
+    # cmd_add
+    I18N_ADD_STEP="백로그 항목 추가"
+    I18N_ADD_BACKLOG_CREATED="백로그 파일 생성됨:"
+    I18N_ADD_BOX_TITLE="✚ 새 백로그 항목"
+    I18N_ADD_BOX_DESC="구현하려는 기능 또는 작업을 설명하세요."
+    I18N_ADD_BOX_AI="AI가 슬러그와 설명을 생성해 백로그에 추가합니다."
+    I18N_ADD_BOX_HINT="여러 줄 입력 가능  ·  빈 줄로 종료"
+    I18N_ADD_CANCELLED="입력 없음 — 취소됨"
+    I18N_ADD_NO_CLI="AI CLI를 찾을 수 없습니다. copilot 또는 claude를 설치하세요."
+    I18N_ADD_GENERATING="AI(${W}%s${N}) 백로그 항목 생성 중..."
+    I18N_ADD_FAILED="AI 생성 실패"
+    I18N_ADD_NO_ITEMS="항목을 추출할 수 없습니다 — 확인하세요: %s"
+    I18N_ADD_DONE="백로그에 추가됨:"
+    I18N_ADD_HINT="확인: ${W}harn backlog${N}   /   지금 시작: ${W}harn start${N}"
+    # cmd_auto
+    I18N_AUTO_STEP="자동 모드"
+    I18N_AUTO_RESUMING="진행 중인 실행 재개: ${W}%s${N}  (스프린트 %s · %s)"
+    I18N_AUTO_CANCELLED="마지막 실행이 취소됨 — 다음 항목을 찾는 중"
+    I18N_AUTO_COMPLETED="마지막 실행 완료 (${W}%s${N}) — 다음 항목을 찾는 중"
+    I18N_AUTO_STARTING="다음 백로그 항목 시작: ${W}%s${N}"
+    I18N_AUTO_EMPTY="백로그가 비어 있습니다."
+    I18N_AUTO_FIRST_DISCOVERED="첫 번째 발굴 항목 시작: ${W}%s${N}"
+    # cmd_all
+    I18N_ALL_NO_BACKLOG="백로그 파일을 찾을 수 없습니다:"
+    I18N_ALL_NO_PENDING="대기 중인 항목이 없습니다."
+    I18N_ALL_HINT="항목 추가: ${W}harn discover${N}  또는  ${W}harn add${N}"
+    I18N_ALL_STEP="전체 자동 실행 —"
+    I18N_ALL_STARTING="[%s/%s] 항목 시작: ${W}%s${N}"
+    I18N_ALL_COMPLETE_ITEM="[%s/%s] 완료: ${W}%s${N}"
+    I18N_ALL_FAILED_ITEM="[%s/%s] 실패: ${W}%s${N} — 다음 항목으로 계속"
+    I18N_ALL_FAILED_ITEMS="실패한 항목:"
+    I18N_ALL_RETRY_HINT="실패 항목 수동 재실행: ${W}harn start <slug>${N}"
+    I18N_ALL_RETRO_STEP="회고 실행 중 (%s개 항목)"
+    I18N_ALL_RETRO_ITEM="회고: ${W}%s${N}"
+    # cmd_status
+    I18N_STATUS_NO_RUN="활성 실행 없음. 시작하려면: ${W}harn start${N}"
+    I18N_STATUS_RUN_ID="실행 ID:"
+    I18N_STATUS_ITEM="항목:"
+    I18N_STATUS_SPRINT="현재 스프린트:"
+    I18N_STATUS_SPRINTS="스프린트:"
+    I18N_STATUS_NO_SPRINTS="(스프린트 없음)"
+    # cmd_config show
+    I18N_CONFIG_TITLE="harn 설정"
+    I18N_CONFIG_PROJECT="  프로젝트:           "
+    I18N_CONFIG_LANGUAGE="  언어:               "
+    I18N_CONFIG_BACKLOG_KEY="  백로그 파일:        "
+    I18N_CONFIG_MAX_RETRIES_KEY="  최대 재시도:        "
+    I18N_CONFIG_GIT_KEY="  Git 통합:           "
+    I18N_CONFIG_BASE_BRANCH_KEY="  기본 작업 브랜치:   "
+    I18N_CONFIG_PR_TARGET_KEY="  PR 타겟 브랜치:     "
+    I18N_CONFIG_AUTO_PUSH_KEY="  자동 Push:          "
+    I18N_CONFIG_AUTO_PR_KEY="  자동 PR:            "
+    I18N_CONFIG_AI_MODELS="AI 모델"
+    I18N_CONFIG_CUSTOM_PROMPTS_KEY="  커스텀 프롬프트:    "
+    I18N_CONFIG_NO_FILE=".harn_config 파일이 없습니다. ${W}harn init${N}을 먼저 실행하세요."
+    I18N_CONFIG_SET_FILE_NOT_FOUND=".harn_config 파일이 없습니다. ${W}harn init${N}을 먼저 실행하세요."
+    I18N_CONFIG_NO_CLI="AI CLI를 찾을 수 없습니다. copilot 또는 claude를 설치하세요."
+    I18N_CONFIG_NO_HINTS="설정에 HINT_* / GIT_GUIDE 값이 없습니다. 재생성할 내용이 없습니다."
+    I18N_CONFIG_HINT_HOW="힌트 추가 방법: ${W}harn config set HINT_PLANNER \"내용\"${N}"
+    I18N_CONFIG_REGEN_STEP="커스텀 프롬프트 재생성 중"
+    I18N_CONFIG_REGEN_INFO="AI CLI(${W}%s${N})로 프롬프트 재생성 중..."
+    I18N_CONFIG_REGEN_DONE="커스텀 프롬프트 재생성됨: ${W}%s${N}"
+    I18N_CONFIG_UNKNOWN_SUB="알 수 없는 서브명령어:"
+    I18N_CONFIG_USAGE="사용법: harn config [show|set KEY VALUE|regen]"
+    # cmd_runs
+    I18N_RUNS_TITLE="harn 실행 목록:"
+    # cmd_resume
+    I18N_RESUME_USAGE="사용법: harn resume <run-id>"
+    I18N_RESUME_NOT_FOUND="실행을 찾을 수 없습니다:"
+    I18N_RESUME_OK="재개됨:"
+    # cmd_tail
+    I18N_TAIL_FALLBACK="current.log 없음 — 최근 실행 로그로 대체:"
+    I18N_TAIL_NO_LOG="활성 로그 없음. 먼저 실행하세요: harn auto"
+    I18N_TAIL_TAILING="로그 실시간 출력:"
+    # cmd_base
+    I18N_BASE_NO_BRANCH="현재 브랜치를 확인할 수 없습니다"
+    I18N_BASE_NO_CONFIG=".harn_config 파일이 없습니다. 실행: ${W}harn init${N}"
+    I18N_BASE_SET_CURRENT="기본 브랜치 → ${W}current${N}  ${D}(현재 브랜치: %s)${N}"
+    I18N_BASE_SET_CURRENT_HINT="harn이 런타임에 활성 브랜치를 기본으로 사용합니다"
+    I18N_BASE_SET="기본 브랜치 설정됨 → ${W}%s${N}  ${D}(이전: %s)${N}"
+    # _ask_user_instructions
+    I18N_INSTRUCTIONS_TITLE="💬 추가 지시사항"
+    I18N_INSTRUCTIONS_ENTER="%s에게 전달할 지시사항을 입력하세요."
+    I18N_INSTRUCTIONS_HINT="빈 줄 = 건너뜀  ·  여러 줄 입력 가능"
+    I18N_INSTRUCTIONS_PASSED="✓  다음 에이전트에게 전달됩니다."
   else
     I18N_LANG_NAME="English"
     I18N_INIT_LANG_PROMPT="Language"
@@ -1059,6 +1286,219 @@ _i18n_load() {
     I18N_AI_BACKEND_TITLE="Default AI backend"
     I18N_AI_USING_COPILOT="${G}✓${N} Using ${W}copilot${N} (GitHub Copilot CLI detected)"
     I18N_AI_USING_CLAUDE="${G}✓${N} Using ${W}claude${N} (Anthropic Claude CLI detected)"
+    # cmd_backlog
+    I18N_BACKLOG_TITLE="Pending backlog items:"
+    I18N_BACKLOG_EMPTY="(none — all done!)"
+    I18N_BACKLOG_RUN="Run: ${W}harn start${N} — select a backlog item and run the full loop"
+    # cmd_start
+    I18N_START_SELECT_ITEM="Select backlog item"
+    I18N_START_NO_PENDING="No pending items in backlog. Add an item first."
+    I18N_START_DISCOVER_HINT="To discover items: harn discover"
+    I18N_START_ENTER_NUM="Enter number (1–%s): "
+    I18N_START_SELECTED="Selected:"
+    I18N_START_INVALID="Invalid input:"
+    I18N_START_RUN_CREATED="Run created:"
+    I18N_START_VIEW_LOG="View live log: ${W}harn tail${N}  →"
+    I18N_START_PLAN_FAILED="Failed at initial planning stage. Check the log and retry:"
+    I18N_START_AUTO_LOOP="Starting automated run"
+    I18N_START_LOOP_DETAIL="Initialization complete. Running sprint loop automatically (contract → implement → evaluate → next, up to %s sprints)."
+    I18N_START_LOOP_INTERRUPTED="Automated sprint loop was interrupted. Check the failure point and resume with 'harn resume %s'."
+    I18N_START_COMPLETE="harn start full automated run complete"
+    I18N_START_MAX_SPRINT="Reached max sprint count (%s). Automated run ended. Run 'harn start' to continue."
+    # cmd_plan
+    I18N_PLAN_STEP="Planning phase"
+    I18N_PLAN_TEXT_NOT_FOUND="plan.text not found — using slug/prompt as plan text"
+    I18N_PLAN_MARKERS_NOT_FOUND="Section markers not found — saving full output as spec.md"
+    I18N_PLAN_ITEM_IN_PROGRESS="Backlog: ${W}%s${N} → In Progress"
+    I18N_PLAN_LINE_UPDATED="Backlog plan line updated:"
+    I18N_PLAN_LINE_FAILED="Backlog plan update failed: slug not found"
+    I18N_PLAN_LINE_UNCHANGED="Backlog plan line unchanged (already up to date)"
+    I18N_PLAN_LINE_EXCEPTION="Exception during backlog plan update"
+    I18N_PLAN_COMPLETE="Planning complete"
+    # cmd_contract
+    I18N_CONTRACT_EXISTS="Scope already exists. Delete %s to recreate it."
+    I18N_CONTRACT_STEP="Sprint %s — scope negotiation"
+    I18N_CONTRACT_REVIEWING="Evaluator reviewing scope..."
+    I18N_CONTRACT_APPROVED="Sprint %s scope approved"
+    I18N_CONTRACT_NEEDS_REVISION="Scope needs revision — revising..."
+    I18N_CONTRACT_REVISED="Sprint %s scope revision complete"
+    I18N_CONTRACT_NEXT="Next step: harn implement"
+    # cmd_implement
+    I18N_IMPL_NO_SCOPE="No scope for sprint %s. Run: harn contract"
+    I18N_IMPL_STEP="Sprint %s — development (iteration %s)"
+    I18N_IMPL_COMPLETE="Sprint %s implementation complete (iteration %s)"
+    I18N_IMPL_NEXT="Next step: harn evaluate"
+    # cmd_evaluate
+    I18N_EVAL_NO_IMPL="No implementation for sprint %s. Run: harn implement"
+    I18N_EVAL_STEP="Sprint %s — evaluation (iteration %s)"
+    I18N_EVAL_RUNNING_CHECKS="Running automated checks..."
+    I18N_EVAL_CHECKS_DONE="Checks complete →"
+    I18N_EVAL_SHUTTING_DOWN="Shutting down E2E environment..."
+    I18N_EVAL_EXEC_ERROR="Sprint %s: evaluator execution error (exit %s) — stopping loop"
+    I18N_EVAL_MANUAL_RESUME="Manual resume: fix the issue then run harn evaluate  or  harn implement"
+    I18N_EVAL_PASS="Sprint %s: ${G}PASS${N}"
+    I18N_EVAL_NEXT="Next step: harn next"
+    I18N_EVAL_FAIL="Sprint %s: QA ${Y}FAIL${N} (iteration %s / %s) — retrying automatically... (report: %s)"
+    # cmd_next
+    I18N_NEXT_STEP="Finishing up"
+    I18N_NEXT_DONE="Backlog: ${W}%s${N} → Done"
+    I18N_NEXT_COMPLETE="${G}Task fully complete: %s${N}"
+    # _sprint_advance
+    I18N_SPRINT_SWITCH="Switching to sprint %s"
+    # cmd_stop
+    I18N_STOP_NO_PID="No running harness found (PID file missing)"
+    I18N_STOP_ALREADY_HINT="Already stopped or was not started with harn start."
+    I18N_STOP_STALE_PID="Process PID=%s already stopped — cleaning up PID file"
+    I18N_STOP_STOPPING="Stopping harness... (PID: ${W}%s${N})"
+    I18N_STOP_SIGKILL="Still running after SIGTERM — sending SIGKILL"
+    I18N_STOP_RUN_STOPPED="Run stopped"
+    I18N_STOP_DONE="Harness stopped"
+    # git helpers
+    I18N_GIT_NO_HEAD="Git: Cannot determine HEAD — skipping"
+    I18N_GIT_CURRENT_BRANCH="Git: Working on current branch ${W}%s${N} (base=current mode)"
+    I18N_GIT_CREATING_BRANCH="Git: Creating planning branch"
+    I18N_GIT_NO_HEAD_BRANCH="Git: Cannot determine HEAD — skipping branch creation"
+    I18N_GIT_BRANCH_EXISTS="Branch ${W}%s${N} already exists — checking out"
+    I18N_GIT_BRANCH_CREATED="Branch created: ${W}%s${N}"
+    I18N_GIT_BACKLOG_COMMITTED="Sprint backlog committed"
+    I18N_GIT_BACKLOG_UNCHANGED="Backlog file unchanged — skipping commit"
+    I18N_GIT_PUSH_FAILED_PR="Push failed — skipping Draft PR creation. Push manually and create a PR."
+    I18N_GIT_BRANCH_PUSHED="Branch pushed: origin/${W}%s${N}"
+    I18N_GIT_PR_CREATING="Creating Draft PR... (base: ${W}%s${N}, head: ${W}%s${N})"
+    I18N_GIT_PR_CREATED="Draft PR created:"
+    I18N_GIT_PR_FAILED="PR creation failed — create it manually"
+    I18N_GIT_PR_CREATE_FAILED="gh pr create failed — create PR manually (%s → %s)"
+    I18N_GIT_IMPL_COMMIT="Git: Sprint %s implementation commit"
+    I18N_GIT_NO_CHANGES="No changes to commit — generator may not have modified any files"
+    I18N_GIT_COMMIT_DONE="Commit done: ${W}%s${N}"
+    I18N_GIT_PUSH_DONE="Push done: origin/${W}%s${N}"
+    I18N_GIT_PUSH_FAILED="Push failed — run: git push origin %s"
+    I18N_GIT_NO_HEAD_PUSH="Git: Cannot determine HEAD — skipping push"
+    I18N_GIT_SPRINT_PASS_PUSH="Git: Sprint %s passed — pushing to origin/${W}%s${N}"
+    I18N_GIT_NO_FEAT_BRANCH="Git: Cannot identify feature branch to merge (current: %s)"
+    I18N_GIT_FINALIZE="Git finalize: ${W}%s${N} → ${W}%s${N}"
+    I18N_GIT_AUTO_COMMIT="Auto-committing uncommitted changes..."
+    I18N_GIT_UPDATE_PR="Updating PR: pushing origin/${W}%s${N}..."
+    I18N_GIT_PUSH_FAILED_MANUAL="Push failed — merge the PR manually"
+    I18N_GIT_PR_MERGING="Merging PR (not squash): ${W}%s${N}"
+    I18N_GIT_PR_MERGED="PR merge complete: ${W}%s${N} → ${W}%s${N}"
+    I18N_GIT_PR_MERGE_FAILED="gh pr merge failed — merge the PR on GitHub manually and then continue"
+    I18N_GIT_RETURN_BASE="Returning to base branch: ${W}%s${N}"
+    I18N_GIT_PULLING="Pulling origin/${W}%s${N}..."
+    I18N_GIT_PULL_DONE="Pull complete: origin/${W}%s${N}"
+    I18N_GIT_PULL_FAILED="Pull failed — run: git pull origin %s"
+    # cmd_retrospective
+    I18N_RETRO_NO_CLI="No AI CLI — skipping retrospective"
+    I18N_RETRO_STEP="Retrospective"
+    I18N_RETRO_ANALYZING="AI(${W}%s${N}) analyzing retrospective..."
+    I18N_RETRO_FAILED="Retrospective generation failed — skipping"
+    I18N_RETRO_SUMMARY_TITLE="  Retrospective Summary"
+    I18N_RETRO_PROMPT_ADD="  Add this suggestion to the ${W}%s${N} prompt? [y/N]: "
+    I18N_RETRO_ADDED="Added to %s prompt: ${W}%s${N}"
+    I18N_RETRO_SKIPPED="%s suggestion skipped"
+    I18N_RETRO_APPLIED="Prompt improvements applied."
+    I18N_RETRO_COMPLETE="Retrospective complete — results: ${W}%s${N}"
+    # _run_sprint_loop
+    I18N_LOOP_STARTED="Loop started (up to %s sprints)"
+    I18N_LOOP_INTERRUPTED="Harness interrupted by user."
+    I18N_LOOP_TERMINATED="Harness received termination signal."
+    I18N_LOOP_SPRINT_PASSED="Sprint %s already passed — moving to next"
+    I18N_LOOP_SPRINT_MAX_ITER="Sprint %s already reached max iterations (%s) — forcing advance"
+    I18N_LOOP_EVAL_ERROR="Evaluator process error — stopping loop. Fix the issue and run harn evaluate."
+    I18N_LOOP_MAX_ITER_ADVANCE="Sprint %s: max iterations (%s) reached — forcing advance without QA pass"
+    I18N_LOOP_ALL_COMPLETE="${G}All %s sprints complete!${N}"
+    I18N_LOOP_SPRINT_DONE="Sprint %s done — switching to sprint %s"
+    # cmd_discover
+    I18N_DISCOVER_STEP="Backlog discovery — codebase analysis"
+    I18N_DISCOVER_NO_ITEMS="Could not extract new items — check %s."
+    I18N_DISCOVER_BACKLOG_CREATED="Backlog file created:"
+    I18N_DISCOVER_ADDED="New items added to backlog"
+    I18N_DISCOVER_HINT="Check: harn backlog   /   Start now: harn auto"
+    # cmd_add
+    I18N_ADD_STEP="Adding backlog item"
+    I18N_ADD_BACKLOG_CREATED="Backlog file created:"
+    I18N_ADD_BOX_TITLE="✚ New backlog item"
+    I18N_ADD_BOX_DESC="Describe the feature or task you want to implement."
+    I18N_ADD_BOX_AI="AI will generate a slug and description and add it to the backlog."
+    I18N_ADD_BOX_HINT="Multi-line input supported  ·  Empty line to finish"
+    I18N_ADD_CANCELLED="No input — cancelled"
+    I18N_ADD_NO_CLI="AI CLI not found. Install copilot or claude."
+    I18N_ADD_GENERATING="AI(${W}%s${N}) generating backlog items..."
+    I18N_ADD_FAILED="AI generation failed"
+    I18N_ADD_NO_ITEMS="Could not extract items — check %s."
+    I18N_ADD_DONE="Added to backlog:"
+    I18N_ADD_HINT="Check: ${W}harn backlog${N}   /   Start now: ${W}harn start${N}"
+    # cmd_auto
+    I18N_AUTO_STEP="Auto mode"
+    I18N_AUTO_RESUMING="Resuming in-progress run: ${W}%s${N}  (sprint %s · %s)"
+    I18N_AUTO_CANCELLED="Last run was cancelled — looking for next item"
+    I18N_AUTO_COMPLETED="Last run completed (${W}%s${N}) — looking for next item"
+    I18N_AUTO_STARTING="Starting next backlog item: ${W}%s${N}"
+    I18N_AUTO_EMPTY="Backlog is empty."
+    I18N_AUTO_FIRST_DISCOVERED="Starting first discovered item: ${W}%s${N}"
+    # cmd_all
+    I18N_ALL_NO_BACKLOG="Backlog file not found:"
+    I18N_ALL_NO_PENDING="No pending items in backlog."
+    I18N_ALL_HINT="To add items: ${W}harn discover${N}  or  ${W}harn add${N}"
+    I18N_ALL_STEP="Full automated run —"
+    I18N_ALL_STARTING="[%s/%s] Starting item: ${W}%s${N}"
+    I18N_ALL_COMPLETE_ITEM="[%s/%s] Complete: ${W}%s${N}"
+    I18N_ALL_FAILED_ITEM="[%s/%s] Failed: ${W}%s${N} — continuing with next item"
+    I18N_ALL_FAILED_ITEMS="Failed items:"
+    I18N_ALL_RETRY_HINT="Re-run failed items manually: ${W}harn start <slug>${N}"
+    I18N_ALL_RETRO_STEP="Running retrospective (%s item(s))"
+    I18N_ALL_RETRO_ITEM="Retrospective: ${W}%s${N}"
+    # cmd_status
+    I18N_STATUS_NO_RUN="No active run. Start with: ${W}harn start${N}"
+    I18N_STATUS_RUN_ID="Run ID:"
+    I18N_STATUS_ITEM="Item:"
+    I18N_STATUS_SPRINT="Current sprint:"
+    I18N_STATUS_SPRINTS="Sprints:"
+    I18N_STATUS_NO_SPRINTS="(no sprints)"
+    # cmd_config show
+    I18N_CONFIG_TITLE="harn Configuration"
+    I18N_CONFIG_PROJECT="  Project:           "
+    I18N_CONFIG_LANGUAGE="  Language:          "
+    I18N_CONFIG_BACKLOG_KEY="  Backlog file:      "
+    I18N_CONFIG_MAX_RETRIES_KEY="  Max retries:       "
+    I18N_CONFIG_GIT_KEY="  Git integration:   "
+    I18N_CONFIG_BASE_BRANCH_KEY="  Base working branch: "
+    I18N_CONFIG_PR_TARGET_KEY="  PR target branch:  "
+    I18N_CONFIG_AUTO_PUSH_KEY="  Auto push:         "
+    I18N_CONFIG_AUTO_PR_KEY="  Auto PR:           "
+    I18N_CONFIG_AI_MODELS="AI Models"
+    I18N_CONFIG_CUSTOM_PROMPTS_KEY="  Custom prompts:    "
+    I18N_CONFIG_NO_FILE="No .harn_config file. Run ${W}harn init${N} first."
+    I18N_CONFIG_SET_FILE_NOT_FOUND=".harn_config file not found. Run ${W}harn init${N} first."
+    I18N_CONFIG_NO_CLI="No AI CLI found. Install copilot or claude."
+    I18N_CONFIG_NO_HINTS="No HINT_* / GIT_GUIDE values in config. Nothing to regenerate."
+    I18N_CONFIG_HINT_HOW="To add hints: ${W}harn config set HINT_PLANNER \"hint content\"${N}"
+    I18N_CONFIG_REGEN_STEP="Regenerating custom prompts"
+    I18N_CONFIG_REGEN_INFO="Regenerating prompts with AI CLI (${W}%s${N})..."
+    I18N_CONFIG_REGEN_DONE="Custom prompts regenerated: ${W}%s${N}"
+    I18N_CONFIG_UNKNOWN_SUB="Unknown config subcommand:"
+    I18N_CONFIG_USAGE="Usage: harn config [show|set KEY VALUE|regen]"
+    # cmd_runs
+    I18N_RUNS_TITLE="Harness runs:"
+    # cmd_resume
+    I18N_RESUME_USAGE="Usage: harn resume <run-id>"
+    I18N_RESUME_NOT_FOUND="Run not found:"
+    I18N_RESUME_OK="Resumed:"
+    # cmd_tail
+    I18N_TAIL_FALLBACK="No current.log — falling back to latest run log:"
+    I18N_TAIL_NO_LOG="No active log. Start a run first: harn auto"
+    I18N_TAIL_TAILING="Tailing log:"
+    # cmd_base
+    I18N_BASE_NO_BRANCH="Cannot determine current branch"
+    I18N_BASE_NO_CONFIG="No .harn_config found. Run: ${W}harn init${N}"
+    I18N_BASE_SET_CURRENT="Base branch → ${W}current${N}  ${D}(resolves to: %s)${N}"
+    I18N_BASE_SET_CURRENT_HINT="harn will work on whichever branch is active at runtime"
+    I18N_BASE_SET="Base branch → ${W}%s${N}  ${D}(was: %s)${N}"
+    # _ask_user_instructions
+    I18N_INSTRUCTIONS_TITLE="💬 Additional instructions"
+    I18N_INSTRUCTIONS_ENTER="Enter instructions to pass to %s."
+    I18N_INSTRUCTIONS_HINT="Empty line = skip  ·  Multi-line input supported"
+    I18N_INSTRUCTIONS_PASSED="✓  Will be passed to the next agent."
   fi
 }
 
@@ -1997,11 +2437,11 @@ invoke_role() {
 
 cmd_backlog() {
   _ensure_backlog_file
-  echo -e "${W}Pending backlog items:${N}"
+  echo -e "${W}${I18N_BACKLOG_TITLE}${N}"
   local slugs
   slugs=$(backlog_pending_slugs)
   if [[ -z "$slugs" ]]; then
-    echo "  (none — all done!)"
+    echo "  ${I18N_BACKLOG_EMPTY}"
     return
   fi
   local i=1
@@ -2023,7 +2463,7 @@ EOF
     i=$(( i + 1 ))
   done <<< "$slugs"
   echo ""
-  echo -e "Run: ${W}harn start${N} — select a backlog item and run the full loop"
+  echo -e "$I18N_BACKLOG_RUN"
 }
 
 cmd_start() {
@@ -2038,12 +2478,12 @@ cmd_start() {
     local slugs
     slugs=$(backlog_pending_slugs)
     if [[ -z "$slugs" ]]; then
-      log_warn "No pending items in backlog. Add an item first."
-      log_info "To discover items: harn discover"
+      log_warn "$I18N_START_NO_PENDING"
+      log_info "$I18N_START_DISCOVER_HINT"
       exit 1
     fi
 
-    echo -e "\n${W}Select backlog item${N}"
+    echo -e "\n${W}${I18N_START_SELECT_ITEM}${N}"
     echo -e "${B}──────────────────────────────${N}"
     local i=1
     local slug_array=()
@@ -2053,16 +2493,16 @@ cmd_start() {
       i=$(( i + 1 ))
     done <<< "$slugs"
     echo ""
-    printf "Enter number (1–${#slug_array[@]}): "
+    printf "$(printf "$I18N_START_ENTER_NUM" "${#slug_array[@]}")"
     local choice; choice=$(_input_readline); echo ""
 
     if [[ "$choice" =~ ^[0-9]+$ ]] && \
        [[ "$choice" -ge 1 ]] && \
        [[ "$choice" -le "${#slug_array[@]}" ]]; then
       slug_or_prompt="${slug_array[$(( choice - 1 ))]}"
-      log_info "Selected: ${W}$slug_or_prompt${N}"
+      log_info "$I18N_START_SELECTED ${W}$slug_or_prompt${N}"
     else
-      log_err "Invalid input: $choice"
+      log_err "$I18N_START_INVALID $choice"
       exit 1
     fi
   fi
@@ -2090,11 +2530,11 @@ cmd_start() {
   } | tee -a "$LOG_FILE"
 
   ln -sfn "$run_dir" "$HARN_DIR/current"
-  log_ok "Run created: $run_id  (${W}$slug_or_prompt${N})"
-  log_info "View live log: ${W}harn tail${N}  →  $run_log"
+  log_ok "$I18N_START_RUN_CREATED $run_id  (${W}$slug_or_prompt${N})"
+  log_info "$I18N_START_VIEW_LOG  $run_log"
 
   if ! cmd_plan; then
-    log_err "Failed at initial planning stage. Check the log and retry: $run_log"
+    log_err "$I18N_START_PLAN_FAILED $run_log"
     return 1
   fi
 
@@ -2108,18 +2548,18 @@ cmd_start() {
     fi
   fi
 
-  log_step "Starting automated run"
-  log_info "Initialization complete. Running sprint loop automatically (contract → implement → evaluate → next, up to ${max_sprints} sprints)."
+  log_step "$I18N_START_AUTO_LOOP"
+  log_info "$(printf "$I18N_START_LOOP_DETAIL" "$max_sprints")"
 
   if ! _run_sprint_loop "$max_sprints"; then
-    log_err "Automated sprint loop was interrupted. Check the failure point and resume with 'harn resume $(basename "$run_dir")'."
+    log_err "$(printf "$I18N_START_LOOP_INTERRUPTED" "$(basename "$run_dir")")"
     return 1
   fi
 
   if [[ -f "$run_dir/completed" ]]; then
-    log_ok "harn start full automated run complete"
+    log_ok "$I18N_START_COMPLETE"
   else
-    log_warn "Reached max sprint count (${max_sprints}). Automated run ended. Run 'harn start' to continue."
+    log_warn "$(printf "$I18N_START_MAX_SPRINT" "$max_sprints")"
   fi
 }
 
@@ -2129,7 +2569,7 @@ cmd_plan() {
   local slug_or_prompt
   slug_or_prompt=$(cat "$run_dir/prompt.txt")
 
-  log_step "Planning phase"
+  log_step "$I18N_PLAN_STEP"
 
   local context_block
   if [[ -f "$BACKLOG_FILE" ]] && [[ "$slug_or_prompt" != *" "* ]]; then
@@ -2212,13 +2652,13 @@ PYEOF
 )
   if [[ -z "$plan_text" ]]; then
     plan_text="$slug_or_prompt"
-    log_warn "plan.text not found — using slug/prompt as plan text"
+    log_warn "$I18N_PLAN_TEXT_NOT_FOUND"
   fi
   echo "$plan_text" > "$run_dir/plan.txt"
 
   if [[ ! -s "$run_dir/spec.md" ]]; then
     cp "$raw" "$run_dir/spec.md"
-    log_warn "Section markers not found — saving full output as spec.md"
+    log_warn "$I18N_PLAN_MARKERS_NOT_FOUND"
   fi
 
   log_ok "Spec → $run_dir/spec.md"
@@ -2255,15 +2695,15 @@ else:
 open(path, 'w').write(content)
 print(f'✓ {slug} → In Progress')
 PYEOF
-    log_ok "Backlog: ${W}$slug_or_prompt${N} → In Progress"
+    log_ok "$(printf "$I18N_PLAN_ITEM_IN_PROGRESS" "$slug_or_prompt")"
 
     if backlog_upsert_plan_line "$slug_or_prompt" "$plan_text"; then
-      log_ok "Backlog plan line updated: ${W}$slug_or_prompt${N}"
+      log_ok "$I18N_PLAN_LINE_UPDATED ${W}$slug_or_prompt${N}"
     else
       case "$?" in
-        2) log_warn "Backlog plan update failed: slug not found (${W}$slug_or_prompt${N})" ;;
-        3) log_info "Backlog plan line unchanged (already up to date)" ;;
-        *) log_warn "Exception during backlog plan update (slug=${W}$slug_or_prompt${N})" ;;
+        2) log_warn "$I18N_PLAN_LINE_FAILED (${W}$slug_or_prompt${N})" ;;
+        3) log_info "$I18N_PLAN_LINE_UNCHANGED" ;;
+        *) log_warn "$I18N_PLAN_LINE_EXCEPTION (slug=${W}$slug_or_prompt${N})" ;;
       esac
     fi
 
@@ -2274,7 +2714,7 @@ PYEOF
     _git_setup_plan_branch "$slug_or_prompt" "$run_dir" "$plan_text"
   fi
 
-  log_ok "Planning complete"
+  log_ok "$I18N_PLAN_COMPLETE"
 }
 
 cmd_contract() {
@@ -2286,11 +2726,11 @@ cmd_contract() {
   sprint=$(sprint_dir "$run_dir" "$sprint_num")
 
   [[ -f "$sprint/contract.md" ]] && {
-    log_warn "Scope already exists. Delete $sprint/contract.md to recreate it."
+    log_warn "$I18N_CONTRACT_EXISTS $sprint/contract.md"
     return 0
   }
 
-  log_step "Sprint $sprint_num — scope negotiation"
+  log_step "$(printf "$I18N_CONTRACT_STEP" "$sprint_num")"
 
   local prev_context=""
   for s in "$run_dir/sprints"/*/; do
@@ -2345,7 +2785,7 @@ EOF
 
   invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal.md" "Generator — Sprint $sprint_num scope proposal" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT" "generator_contract"
 
-  log_info "Evaluator reviewing scope..."
+  log_info "$I18N_CONTRACT_REVIEWING"
   local eval_prompt
   eval_prompt="$(cat "$PROMPTS_DIR/evaluator.md")
 
@@ -2364,9 +2804,9 @@ $(cat "$sprint/contract-proposal.md")
 
   if grep -qi 'APPROVED' "$sprint/contract-review.md"; then
     cp "$sprint/contract-proposal.md" "$sprint/contract.md"
-    log_ok "Sprint $sprint_num scope approved"
+    log_ok "$(printf "$I18N_CONTRACT_APPROVED" "$sprint_num")"
   else
-    log_warn "Scope needs revision — revising..."
+    log_warn "$I18N_CONTRACT_NEEDS_REVISION"
     cat >> "$gen_prompt_file" <<EOF
 
 ---
@@ -2379,10 +2819,10 @@ Please revise the scope incorporating the above feedback.
 EOF
     invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal-v2.md" "Generator — Sprint $sprint_num scope revision" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT" "generator_contract"
     cp "$sprint/contract-proposal-v2.md" "$sprint/contract.md"
-    log_ok "Sprint $sprint_num scope revision complete"
+    log_ok "$(printf "$I18N_CONTRACT_REVISED" "$sprint_num")"
   fi
 
-  log_info "Next step: harn implement"
+  log_info "$I18N_CONTRACT_NEXT"
 }
 
 cmd_implement() {
@@ -2394,7 +2834,7 @@ cmd_implement() {
   sprint=$(sprint_dir "$run_dir" "$sprint_num")
 
   [[ ! -f "$sprint/contract.md" ]] && {
-    log_err "No scope for sprint $sprint_num. Run: harn contract"
+    log_err "$(printf "$I18N_IMPL_NO_SCOPE" "$sprint_num")"
     exit 1
   }
 
@@ -2402,7 +2842,7 @@ cmd_implement() {
   iteration=$(( $(sprint_iteration "$sprint") + 1 ))
   echo "$iteration" > "$sprint/iteration"
 
-  log_step "Sprint $sprint_num — development (iteration $iteration)"
+  log_step "$(printf "$I18N_IMPL_STEP" "$sprint_num" "$iteration")"
 
   local qa_feedback=""
   if [[ $iteration -gt 1 && -f "$sprint/qa-report.md" ]]; then
@@ -2467,12 +2907,12 @@ EOF
   invoke_role "generator" "$prompt_file" "$sprint/implementation-iter${iteration}.md" "Generator — Sprint $sprint_num implementation (iteration $iteration)" "file" "$impl_model" "generator_impl"
   cp "$sprint/implementation-iter${iteration}.md" "$sprint/implementation.md"
 
-  log_ok "Sprint $sprint_num implementation complete (iteration $iteration)"
+  log_ok "$(printf "$I18N_IMPL_COMPLETE" "$sprint_num" "$iteration")"
 
   # Git commit implementation results
   _git_commit_sprint_impl "$sprint_num" "$sprint"
 
-  log_info "Next step: harn evaluate"
+  log_info "$I18N_IMPL_NEXT"
 }
 
 cmd_evaluate() {
@@ -2486,13 +2926,13 @@ cmd_evaluate() {
   iteration=$(sprint_iteration "$sprint")
 
   [[ ! -f "$sprint/implementation.md" ]] && {
-    log_err "No implementation for sprint $sprint_num. Run: harn implement"
+    log_err "$(printf "$I18N_EVAL_NO_IMPL" "$sprint_num")"
     exit 1
   }
 
-  log_step "Sprint $sprint_num — evaluation (iteration $iteration)"
+  log_step "$(printf "$I18N_EVAL_STEP" "$sprint_num" "$iteration")"
 
-  log_info "Running automated checks..."
+  log_info "$I18N_EVAL_RUNNING_CHECKS"
   local test_results="$sprint/test-results.txt"
   {
     cd "$ROOT_DIR"
@@ -2553,7 +2993,7 @@ cmd_evaluate() {
       fi
     fi
   } > "$test_results"
-  log_info "Checks complete → $test_results"
+  log_info "$I18N_EVAL_CHECKS_DONE $test_results"
 
   # E2E environment context (last sprint only)
   local e2e_context=""
@@ -2598,7 +3038,7 @@ Write exactly one line at the end of the report:
 
   # Clean up background processes tracked in e2e-env.txt (if any)
   if [[ -f "$sprint/e2e-env.txt" ]]; then
-    log_info "Shutting down E2E environment..."
+    log_info "$I18N_EVAL_SHUTTING_DOWN"
     while IFS='=' read -r key val; do
       [[ "$key" == *_PID ]] && kill "$val" 2>/dev/null && log_info "$key ($val) stopped" || true
     done < "$sprint/e2e-env.txt"
@@ -2606,21 +3046,21 @@ Write exactly one line at the end of the report:
 
   if [[ $eval_exit_code -ne 0 ]]; then
     echo "fail" > "$sprint/status"
-    log_err "Sprint $sprint_num: evaluator execution error (exit $eval_exit_code) — stopping loop"
-    log_info "Manual resume: fix the issue then run harn evaluate  or  harn implement"
+    log_err "$(printf "$I18N_EVAL_EXEC_ERROR" "$sprint_num" "$eval_exit_code")"
+    log_info "$I18N_EVAL_MANUAL_RESUME"
     return 1
   fi
 
   if grep -qiE 'VERDICT[[:space:]]*:[[:space:]]*PASS' "$sprint/qa-report.md"; then
     echo "pass" > "$sprint/status"
-    log_ok "Sprint $sprint_num: ${G}PASS${N}"
+    log_ok "$(printf "$I18N_EVAL_PASS" "$sprint_num")"
     _git_push_sprint_pass "$sprint_num"
-    log_info "Next step: harn next"
+    log_info "$I18N_EVAL_NEXT"
   else
     echo "fail" > "$sprint/status"
     local cur_iter
     cur_iter=$(sprint_iteration "$sprint")
-    log_warn "Sprint $sprint_num: QA ${Y}FAIL${N} (iteration $cur_iter / $MAX_ITERATIONS) — retrying automatically... (report: $sprint/qa-report.md)"
+    log_warn "$(printf "$I18N_EVAL_FAIL" "$sprint_num" "$cur_iter" "$MAX_ITERATIONS" "$sprint/qa-report.md")"
   fi
 }
 
@@ -2631,7 +3071,7 @@ _sprint_advance() {
   sprint_num=$(current_sprint_num "$run_dir")
   local next_num=$(( sprint_num + 1 ))
   echo "$next_num" > "$run_dir/current_sprint"
-  log_info "Switching to sprint $next_num"
+  log_info "$(printf "$I18N_SPRINT_SWITCH" "$next_num")"
 }
 
 cmd_next() {
@@ -2642,7 +3082,7 @@ cmd_next() {
   local sprint
   sprint=$(sprint_dir "$run_dir" "$sprint_num")
 
-  log_step "Finishing up"
+  log_step "$I18N_NEXT_STEP"
 
   # Write final completion summary
   invoke_role "evaluator" "$(cat "$PROMPTS_DIR/evaluator.md")
@@ -2687,22 +3127,22 @@ else:
     content = content.rstrip() + '\n\n## Done\n' + item_text + '\n'
 open(path, 'w').write(content)
 PYEOF
-    log_ok "Backlog: ${W}$slug_or_prompt${N} → Done"
+    log_ok "$(printf "$I18N_NEXT_DONE" "$slug_or_prompt")"
   fi
 
   # Completion flag (prevents auto resumption)
   touch "$run_dir/completed"
   rm -f "$HARN_DIR/current"
 
-  log_ok "${G}Task fully complete: $slug_or_prompt${N}"
+  log_ok "$(printf "$I18N_NEXT_COMPLETE" "$slug_or_prompt")"
 }
 
 cmd_stop() {
   local pid_file="$HARN_DIR/harn.pid"
 
   if [[ ! -f "$pid_file" ]]; then
-    log_warn "No running harness found (PID file missing)"
-    log_info "Already stopped or was not started with harn start."
+    log_warn "$I18N_STOP_NO_PID"
+    log_info "$I18N_STOP_ALREADY_HINT"
     return 0
   fi
 
@@ -2710,12 +3150,12 @@ cmd_stop() {
   pid=$(cat "$pid_file")
 
   if ! kill -0 "$pid" 2>/dev/null; then
-    log_warn "Process PID=$pid already stopped — cleaning up PID file"
+    log_warn "$(printf "$I18N_STOP_STALE_PID" "$pid")"
     rm -f "$pid_file"
     return 0
   fi
 
-  log_info "Stopping harness... (PID: ${W}$pid${N})"
+  log_info "$(printf "$I18N_STOP_STOPPING" "$pid")"
 
   # Send SIGTERM to the entire process group (including claude/copilot child processes)
   kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
@@ -2723,7 +3163,7 @@ cmd_stop() {
 
   # If still alive, send SIGKILL
   if kill -0 "$pid" 2>/dev/null; then
-    log_warn "Still running after SIGTERM — sending SIGKILL"
+    log_warn "$I18N_STOP_SIGKILL"
     kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
   fi
 
@@ -2741,9 +3181,9 @@ cmd_stop() {
     if [[ "$cur_status" == "in-progress" || "$cur_status" == "pending" ]]; then
       echo "cancelled" > "$sprint/status"
     fi
-    log_ok "Run ${W}$(basename "$run_dir")${N} stopped"
+    log_ok "$I18N_STOP_RUN_STOPPED: ${W}$(basename "$run_dir")${N}"
   else
-    log_ok "Harness stopped"
+    log_ok "$I18N_STOP_DONE"
   fi
 }
 
@@ -2780,10 +3220,10 @@ _git_setup_plan_branch() {
   if [[ "${GIT_BASE_BRANCH:-}" == "current" ]]; then
     local cur_branch; cur_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     if [[ -z "$cur_branch" || "$cur_branch" == "HEAD" ]]; then
-      log_warn "Git: Cannot determine HEAD — skipping"
+      log_warn "$I18N_GIT_NO_HEAD"
       return 0
     fi
-    log_step "Git: Working on current branch ${W}${cur_branch}${N} (base=current mode)"
+    log_step "$(printf "$I18N_GIT_CURRENT_BRANCH" "$cur_branch")"
     # Still commit backlog file if changed
     if [[ -f "$BACKLOG_FILE" ]]; then
       git -C "$ROOT_DIR" add "$BACKLOG_FILE"
@@ -2806,10 +3246,10 @@ _git_setup_plan_branch() {
         --title "$pr_title" \
         --body "$pr_body" \
         $draft_flag 2>/dev/null); then
-        log_ok "Draft PR created: ${W}${pr_url}${N}"
+        log_ok "$I18N_GIT_PR_CREATED ${W}${pr_url}${N}"
         echo "$pr_url" > "$run_dir/pr-url.txt"
       else
-        log_warn "gh pr create failed — create PR manually (${cur_branch} → ${pr_target})"
+        log_warn "$(printf "$I18N_GIT_PR_CREATE_FAILED" "$cur_branch" "$pr_target")"
       fi
     fi
     return 0
@@ -2817,24 +3257,24 @@ _git_setup_plan_branch() {
 
   local branch="${GIT_PLAN_PREFIX}${slug}"
 
-  log_step "Git: Creating planning branch"
+  log_step "$I18N_GIT_CREATING_BRANCH"
 
   # Check current branch
   local current_branch
   current_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
   if [[ -z "$current_branch" || "$current_branch" == "HEAD" ]]; then
-    log_warn "Git: Cannot determine HEAD — skipping branch creation"
+    log_warn "$I18N_GIT_NO_HEAD_BRANCH"
     return 0
   fi
 
   # Create or checkout branch
   if git -C "$ROOT_DIR" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-    log_warn "Branch ${W}$branch${N} already exists — checking out"
+    log_warn "$(printf "$I18N_GIT_BRANCH_EXISTS" "$branch")"
     git -C "$ROOT_DIR" checkout "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
   else
     git -C "$ROOT_DIR" checkout -b "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
-    log_ok "Branch created: ${W}$branch${N}"
+    log_ok "$(printf "$I18N_GIT_BRANCH_CREATED" "$branch")"
   fi
 
   # Commit backlog file (only if changed)
@@ -2843,19 +3283,19 @@ _git_setup_plan_branch() {
     if ! git -C "$ROOT_DIR" diff --cached --quiet 2>/dev/null; then
       git -C "$ROOT_DIR" commit -m "plan: ${slug} — planning started (sprint backlog updated)" \
         2>&1 | while IFS= read -r line; do log_info "$line"; done
-      log_ok "Sprint backlog committed"
+      log_ok "$I18N_GIT_BACKLOG_COMMITTED"
     else
-      log_info "Backlog file unchanged — skipping commit"
+      log_info "$I18N_GIT_BACKLOG_UNCHANGED"
     fi
   fi
 
   # Push branch to origin
   if ! git -C "$ROOT_DIR" push -u origin "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_warn "Push failed — skipping Draft PR creation. Push manually and create a PR."
+    log_warn "$I18N_GIT_PUSH_FAILED_PR"
     log_info "Branch: ${W}$branch${N}"
     return 0
   fi
-  log_ok "Branch pushed: origin/${W}$branch${N}"
+  log_ok "$(printf "$I18N_GIT_BRANCH_PUSHED" "$branch")"
 
   # Create Draft PR
   local pr_title="[Plan] ${slug}: ${plan_text}"
@@ -2865,7 +3305,7 @@ _git_setup_plan_branch() {
   local draft_flag="--draft"
   [[ "$GIT_PR_DRAFT" == "false" ]] && draft_flag=""
 
-  log_info "Creating Draft PR... (base: ${W}${pr_target}${N}, head: ${W}${branch}${N})"
+  log_info "$(printf "$I18N_GIT_PR_CREATING" "$pr_target" "$branch")"
   local pr_out
 
   # shellcheck disable=SC2086
@@ -2875,10 +3315,10 @@ _git_setup_plan_branch() {
       --title "$pr_title" \
       --body "$pr_body" \
       $draft_flag 2>&1); then
-    log_ok "Draft PR created: ${W}$pr_out${N}"
+    log_ok "$I18N_GIT_PR_CREATED ${W}$pr_out${N}"
     echo "$pr_out" > "$run_dir/pr-url.txt"
   else
-    log_warn "PR creation failed — create it manually"
+    log_warn "$I18N_GIT_PR_FAILED"
     log_info "Branch: origin/${W}$branch${N}  →  ${W}$pr_target${N}"
     log_info "Error: $pr_out"
   fi
@@ -2901,25 +3341,25 @@ _git_commit_sprint_impl() {
   local commit_msg="feat(sprint-${sprint_num}): ${sprint_goal}"
   [[ "$iteration" -gt 1 ]] && commit_msg="${commit_msg} (retry ${iteration})"
 
-  log_step "Git: Sprint $sprint_num implementation commit"
+  log_step "$(printf "$I18N_GIT_IMPL_COMMIT" "$sprint_num")"
 
   cd "$ROOT_DIR"
   git add -A
   if git diff --cached --quiet 2>/dev/null; then
-    log_info "No changes to commit — generator may not have modified any files"
+    log_info "$I18N_GIT_NO_CHANGES"
     return 0
   fi
 
   git commit -m "$commit_msg" \
     2>&1 | while IFS= read -r line; do log_info "$line"; done
-  log_ok "Commit done: ${W}${commit_msg}${N}"
+  log_ok "$(printf "$I18N_GIT_COMMIT_DONE" "$commit_msg")"
 
   if [[ "$GIT_AUTO_PUSH" == "true" ]]; then
     local cur_branch
     cur_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     git push origin "$cur_branch" \
       2>&1 | while IFS= read -r line; do log_info "$line"; done
-    log_ok "Push done: origin/${W}${cur_branch}${N}"
+    log_ok "$(printf "$I18N_GIT_PUSH_DONE" "$cur_branch")"
   fi
 }
 
@@ -2931,11 +3371,11 @@ _git_push_sprint_pass() {
   cur_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
   if [[ -z "$cur_branch" || "$cur_branch" == "HEAD" ]]; then
-    log_warn "Git: Cannot determine HEAD — skipping push"
+    log_warn "$I18N_GIT_NO_HEAD_PUSH"
     return 0
   fi
 
-  log_step "Git: Sprint $sprint_num passed — pushing to origin/${W}${cur_branch}${N}"
+  log_step "$(printf "$I18N_GIT_SPRINT_PASS_PUSH" "$sprint_num" "$cur_branch")"
   cd "$ROOT_DIR"
 
   # Commit any uncommitted changes (e.g. qa-report.md, status files)
@@ -2946,9 +3386,9 @@ _git_push_sprint_pass() {
   fi
 
   if git push origin "$cur_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "Push done: origin/${W}${cur_branch}${N}"
+    log_ok "$(printf "$I18N_GIT_PUSH_DONE" "$cur_branch")"
   else
-    log_warn "Push failed — run: git push origin ${cur_branch}"
+    log_warn "$(printf "$I18N_GIT_PUSH_FAILED" "$cur_branch")"
   fi
 }
 
@@ -2963,28 +3403,28 @@ _git_merge_to_base() {
   pr_target="${GIT_PR_TARGET_BRANCH:-$base_branch}"
 
   if [[ -z "$feat_branch" || "$feat_branch" == "$base_branch" || "$feat_branch" == "HEAD" ]]; then
-    log_warn "Git: Cannot identify feature branch to merge (current: ${feat_branch:-unknown})"
+    log_warn "$(printf "$I18N_GIT_NO_FEAT_BRANCH" "${feat_branch:-unknown}")"
     return 0
   fi
 
-  log_step "Git finalize: ${W}${feat_branch}${N} → ${W}${pr_target}${N}"
+  log_step "$(printf "$I18N_GIT_FINALIZE" "$feat_branch" "$pr_target")"
 
   # Commit uncommitted changes (including backlog Done status, etc.)
   cd "$ROOT_DIR"
   if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    log_info "Auto-committing uncommitted changes..."
+    log_info "$I18N_GIT_AUTO_COMMIT"
     git add -A
     git commit -m "chore: harn auto-commit — sprint complete" \
       2>&1 | while IFS= read -r line; do log_info "$line"; done
   fi
 
   # Push feature branch to origin
-  log_info "Updating PR: pushing origin/${W}${feat_branch}${N}..."
+  log_info "$(printf "$I18N_GIT_UPDATE_PR" "$feat_branch")"
   if ! git push origin "$feat_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_warn "Push failed — merge the PR manually"
+    log_warn "$I18N_GIT_PUSH_FAILED_MANUAL"
     return 1
   fi
-  log_ok "Push done: origin/${W}${feat_branch}${N}"
+  log_ok "$(printf "$I18N_GIT_PUSH_DONE" "$feat_branch")"
 
   # gh pr merge — not squash
   local pr_url_file pr_url
@@ -2992,25 +3432,25 @@ _git_merge_to_base() {
   pr_url=$(cat "$pr_url_file" 2>/dev/null || echo "")
 
   local merge_target="${pr_url:-$feat_branch}"
-  log_info "Merging PR (not squash): ${W}${merge_target}${N}"
+  log_info "$(printf "$I18N_GIT_PR_MERGING" "$merge_target")"
 
   if gh pr merge "$merge_target" --merge 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "PR merge complete: ${W}${feat_branch}${N} → ${W}${pr_target}${N}"
+    log_ok "$(printf "$I18N_GIT_PR_MERGED" "$feat_branch" "$pr_target")"
   else
-    log_warn "gh pr merge failed — merge the PR on GitHub manually and then continue"
+    log_warn "$I18N_GIT_PR_MERGE_FAILED"
     log_info "PR: ${pr_url:-}"
     return 1
   fi
 
   # Return to base branch and pull
-  log_info "Returning to base branch: ${W}${base_branch}${N}"
+  log_info "$(printf "$I18N_GIT_RETURN_BASE" "$base_branch")"
   git checkout "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
 
-  log_info "Pulling origin/${W}${base_branch}${N}..."
+  log_info "$(printf "$I18N_GIT_PULLING" "$base_branch")"
   if git pull origin "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "Pull complete: origin/${W}${base_branch}${N}"
+    log_ok "$(printf "$I18N_GIT_PULL_DONE" "$base_branch")"
   else
-    log_warn "Pull failed — run: git pull origin ${base_branch}"
+    log_warn "$(printf "$I18N_GIT_PULL_FAILED" "$base_branch")"
     return 1
   fi
 }
@@ -3020,11 +3460,11 @@ cmd_retrospective() {
   local run_dir="$1"
   local ai_cmd; ai_cmd=$(_detect_ai_cli)
   if [[ -z "$ai_cmd" ]]; then
-    log_warn "No AI CLI — skipping retrospective"
+    log_warn "$I18N_RETRO_NO_CLI"
     return 0
   fi
 
-  log_step "Retrospective"
+  log_step "$I18N_RETRO_STEP"
 
   # ── Context collection ─────────────────────────────────────────────────────
   local backlog_item=""
@@ -3072,9 +3512,9 @@ $(cat "$PROMPTS_DIR/generator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/genera
 $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evaluator.md")"
 
   local retro_out="$run_dir/retrospective.md"
-  log_info "AI(${W}${ai_cmd}${N}) analyzing retrospective..."
+  log_info "$(printf "$I18N_RETRO_ANALYZING" "$ai_cmd")"
   if ! _ai_generate "$ai_cmd" "$prompt" "$retro_out"; then
-    log_warn "Retrospective generation failed — skipping"
+    log_warn "$I18N_RETRO_FAILED"
     return 0
   fi
 
@@ -3083,7 +3523,7 @@ $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evalua
   summary=$(awk '/^=== retro-summary ===$/{f=1;next} /^=== /{f=0} f{print}' "$retro_out")
   if [[ -n "$summary" ]]; then
     echo ""
-    echo -e "${W}  Retrospective Summary${N}"
+    echo -e "${W}${I18N_RETRO_SUMMARY_TITLE}${N}"
     echo -e "${D}  ────────────────────────────────────${N}"
     echo "$summary" | while IFS= read -r line; do
       echo -e "  $line"
@@ -3111,7 +3551,7 @@ $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evalua
     done
     echo -e "${C}  ╰${N}"
     echo ""
-    printf "  Add this suggestion to the ${W}${role_kr}${N} prompt? [y/N]: "
+    printf "$(printf "$I18N_RETRO_PROMPT_ADD" "$role_kr")"
     local yn; yn=$(_input_readline); echo ""
 
     if [[ "$yn" == "y" || "$yn" == "Y" ]]; then
@@ -3123,10 +3563,10 @@ $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evalua
         cp "$SCRIPT_DIR/prompts/${role}.md" "$target_prompt"
       fi
       printf '\n\n## Retrospective Improvements (%s)\n\n%s\n' "$(date '+%Y-%m-%d')" "$suggestion" >> "$target_prompt"
-      log_ok "Added to ${role_kr} prompt: ${W}${target_prompt}${N}"
+      log_ok "$(printf "$I18N_RETRO_ADDED" "$role_kr" "$target_prompt")"
       any_applied=true
     else
-      log_info "${role_kr} suggestion skipped"
+      log_info "$(printf "$I18N_RETRO_SKIPPED" "$role_kr")"
     fi
   done
 
@@ -3136,10 +3576,10 @@ $(cat "$PROMPTS_DIR/evaluator.md" 2>/dev/null || cat "$SCRIPT_DIR/prompts/evalua
       local rel_dir="${PROMPTS_DIR#$ROOT_DIR/}"
       sed -i '' "s|^CUSTOM_PROMPTS_DIR=.*|CUSTOM_PROMPTS_DIR=\"${rel_dir}\"|" "$CONFIG_FILE" 2>/dev/null || true
     fi
-    log_ok "Prompt improvements applied."
+    log_ok "$I18N_RETRO_APPLIED"
   fi
 
-  log_ok "Retrospective complete — results: ${W}${retro_out}${N}"
+  log_ok "$(printf "$I18N_RETRO_COMPLETE" "$retro_out")"
 }
 
 # ── Sprint loop main body ─────────────────────────────────────────────────────
@@ -3157,10 +3597,10 @@ _run_sprint_loop() {
   # Save PID (so harn stop can find this process)
   echo "$$" > "$HARN_DIR/harn.pid"
   trap 'rm -f "$HARN_DIR/harn.pid"' EXIT
-  trap 'rm -f "$HARN_DIR/harn.pid"; log_warn "Harness interrupted by user."; exit 130' INT
-  trap 'rm -f "$HARN_DIR/harn.pid"; log_warn "Harness received termination signal."; exit 143' TERM
+  trap 'rm -f "$HARN_DIR/harn.pid"; log_warn "$I18N_LOOP_INTERRUPTED"; exit 130' INT
+  trap 'rm -f "$HARN_DIR/harn.pid"; log_warn "$I18N_LOOP_TERMINATED"; exit 143' TERM
 
-  log_step "Loop started (up to $max_sprints sprints)"
+  log_step "$(printf "$I18N_LOOP_STARTED" "$max_sprints")"
 
   for _ in $(seq 1 "$max_sprints"); do
     local sprint_num
@@ -3182,21 +3622,21 @@ _run_sprint_loop() {
     iter=$(sprint_iteration "$sprint")
 
     if [[ "$(sprint_status "$sprint")" == "pass" ]]; then
-      log_info "Sprint $sprint_num already passed — moving to next"
+      log_info "$(printf "$I18N_LOOP_SPRINT_PASSED" "$sprint_num")"
     elif [[ $iter -ge $MAX_ITERATIONS ]]; then
-      log_warn "Sprint $sprint_num already reached max iterations ($MAX_ITERATIONS) — forcing advance"
+      log_warn "$(printf "$I18N_LOOP_SPRINT_MAX_ITER" "$sprint_num" "$MAX_ITERATIONS")"
     else
       while [[ $iter -lt $MAX_ITERATIONS ]]; do
         cmd_implement
         iter=$(sprint_iteration "$sprint")
         if ! cmd_evaluate; then
-          log_err "Evaluator process error — stopping loop. Fix the issue and run harn evaluate."
+          log_err "$I18N_LOOP_EVAL_ERROR"
           return 1
         fi
         [[ "$(sprint_status "$sprint")" == "pass" ]] && break
       done
       if [[ "$(sprint_status "$sprint")" != "pass" ]]; then
-        log_warn "Sprint $sprint_num: max iterations ($MAX_ITERATIONS) reached — forcing advance without QA pass"
+        log_warn "$(printf "$I18N_LOOP_MAX_ITER_ADVANCE" "$sprint_num" "$MAX_ITERATIONS")"
       fi
     fi
 
@@ -3208,7 +3648,7 @@ _run_sprint_loop() {
       # ── Last sprint done: final cleanup and exit ────────────────────────────
       _log_raw ""
       _log_raw "${G}  ╔══════════════════════════════════════════════════════════╗${N}"
-      _log_raw "${G}  ║  ✓  All ${total} sprints complete!${N}"
+      _log_raw "${G}  ║  ✓  $(printf "$I18N_LOOP_ALL_COMPLETE" "$total")${N}"
       _log_raw "${G}  ╚══════════════════════════════════════════════════════════╝${N}"
       cmd_next          # write handoff + move backlog to Done + set completed flag
       _git_merge_to_base
@@ -3218,7 +3658,7 @@ _run_sprint_loop() {
       break
     else
       # ── Intermediate sprint done: increment counter and move to next sprint ─
-      log_info "Sprint $sprint_num done — switching to sprint $(( sprint_num + 1 ))"
+      log_info "$(printf "$I18N_LOOP_SPRINT_DONE" "$sprint_num" "$(( sprint_num + 1 ))")"
       _sprint_advance "$run_dir"
     fi
   done
@@ -3227,7 +3667,7 @@ _run_sprint_loop() {
 # ── New task discovery ─────────────────────────────────────────────────────────
 
 cmd_discover() {
-  log_step "Backlog discovery — codebase analysis"
+  log_step "$I18N_DISCOVER_STEP"
 
   mkdir -p "$HARN_DIR"
   LOG_FILE="$HARN_DIR/harn.log"
@@ -3287,7 +3727,7 @@ Rules:
   new_items=$(awk '/^=== new-items ===$/{f=1;next} f{print}' "$out_file")
 
   if [[ -z "$new_items" ]]; then
-    log_warn "Could not extract new items — check $out_file."
+    log_warn "$(printf "$I18N_DISCOVER_NO_ITEMS" "$out_file")"
     return 0
   fi
 
@@ -3302,7 +3742,7 @@ Rules:
 
 ## Done
 BEOF
-    log_info "Backlog file created: $BACKLOG_FILE"
+    log_info "$I18N_DISCOVER_BACKLOG_CREATED $BACKLOG_FILE"
   fi
 
   # Insert directly into ## Pending section (items passed via stdin)
@@ -3334,19 +3774,19 @@ else:
 open(path, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PYEOF
 
-  log_ok "New items added to backlog"
+  log_ok "$I18N_DISCOVER_ADDED"
   echo ""
   echo "$new_items" | grep -E '^\- \[ \] \*\*' | while IFS= read -r line; do
     echo -e "  ${Y}$line${N}"
   done
   echo ""
-  log_info "Check: harn backlog   /   Start now: harn auto"
+  log_info "$I18N_DISCOVER_HINT"
 }
 
 # ── Add backlog item ───────────────────────────────────────────────────────────
 
 cmd_add() {
-  log_step "Adding backlog item"
+  log_step "$I18N_ADD_STEP"
 
   # Create default structure if backlog file doesn't exist
   if [[ ! -f "$BACKLOG_FILE" ]]; then
@@ -3360,27 +3800,27 @@ cmd_add() {
 
 ## Done
 BEOF
-    log_info "Backlog file created: $BACKLOG_FILE"
+    log_info "$I18N_ADD_BACKLOG_CREATED $BACKLOG_FILE"
   fi
 
   echo -e ""
-  echo -e "${B}  ╭─ ✚ New backlog item${N}"
-  echo -e "${B}  │${N}  Describe the feature or task you want to implement."
-  echo -e "${B}  │${N}  AI will generate a slug and description and add it to the backlog."
-  echo -e "${B}  │${N}  ${D}Multi-line input supported  ·  Empty line to finish${N}"
+  echo -e "${B}  ╭─ $I18N_ADD_BOX_TITLE${N}"
+  echo -e "${B}  │${N}  $I18N_ADD_BOX_DESC"
+  echo -e "${B}  │${N}  $I18N_ADD_BOX_AI"
+  echo -e "${B}  │${N}  ${D}$I18N_ADD_BOX_HINT${N}"
   echo -e "${B}  ╰${N}"
 
   local user_input
   user_input=$(_input_multiline)
 
   if [[ -z "$user_input" ]]; then
-    log_warn "No input — cancelled"
+    log_warn "$I18N_ADD_CANCELLED"
     return 0
   fi
 
   local ai_cmd; ai_cmd=$(_detect_ai_cli)
   if [[ -z "$ai_cmd" ]]; then
-    log_err "AI CLI not found. Install copilot or claude."
+    log_err "$I18N_ADD_NO_CLI"
     exit 1
   fi
 
@@ -3415,13 +3855,13 @@ Rules:
 - Description indented 2 spaces directly below the item
 - 1–3 items only"
 
-  log_info "AI(${W}${ai_cmd}${N}) generating backlog items..."
+  log_info "$(printf "$I18N_ADD_GENERATING" "$ai_cmd")"
 
   local out_file="$HARN_DIR/add-$(date +%Y%m%d-%H%M%S).md"
   mkdir -p "$HARN_DIR"
 
   if ! _ai_generate "$ai_cmd" "$prompt" "$out_file"; then
-    log_err "AI generation failed"
+    log_err "$I18N_ADD_FAILED"
     return 1
   fi
 
@@ -3429,7 +3869,7 @@ Rules:
   new_items=$(awk '/^=== new-items ===$/{f=1;next} f{print}' "$out_file")
 
   if [[ -z "$new_items" ]]; then
-    log_warn "Could not extract items — check $out_file."
+    log_warn "$(printf "$I18N_ADD_NO_ITEMS" "$out_file")"
     return 0
   fi
 
@@ -3467,18 +3907,18 @@ PYEOF
   rm -f "$items_tmp"
 
   echo ""
-  log_ok "Added to backlog:"
+  log_ok "$I18N_ADD_DONE"
   echo "$new_items" | grep -E '^\- \[ \] \*\*' | while IFS= read -r item; do
     echo -e "  ${C}▸${N} $item"
   done
   echo ""
-  log_info "Check: ${W}harn backlog${N}   /   Start now: ${W}harn start${N}"
+  log_info "$I18N_ADD_HINT"
 }
 
 # ── Auto mode ──────────────────────────────────────────────────────────────────
 
 cmd_auto() {
-  log_step "Auto mode"
+  log_step "$I18N_AUTO_STEP"
 
   local run_id run_dir
   run_id=$(current_run_id)
@@ -3493,14 +3933,14 @@ cmd_auto() {
       cur_status=$(sprint_status "$sprint" 2>/dev/null || echo "pending")
 
       if [[ "$cur_status" != "cancelled" ]]; then
-        log_info "Resuming in-progress run: ${W}$run_id${N}  (sprint $sprint_num · $cur_status)"
+        log_info "$(printf "$I18N_AUTO_RESUMING" "$run_id" "$sprint_num" "$cur_status")"
         _run_sprint_loop 10
         return 0
       else
-        log_info "Last run was cancelled — looking for next item"
+        log_info "$I18N_AUTO_CANCELLED"
       fi
     else
-      log_info "Last run completed (${W}$run_id${N}) — looking for next item"
+      log_info "$(printf "$I18N_AUTO_COMPLETED" "$run_id")"
     fi
   fi
 
@@ -3509,20 +3949,20 @@ cmd_auto() {
   next_slug=$(backlog_next_slug)
 
   if [[ -n "$next_slug" ]]; then
-    log_info "Starting next backlog item: ${W}$next_slug${N}"
+    log_info "$(printf "$I18N_AUTO_STARTING" "$next_slug")"
     rm -f "$HARN_DIR/current"   # reset previous run pointer
     cmd_start "$next_slug"
     return 0
   fi
 
   # 3. Backlog empty → analyze codebase and add new items
-  log_warn "Backlog is empty."
+  log_warn "$I18N_AUTO_EMPTY"
   cmd_discover
 
   # If discovery produced new items, start immediately
   next_slug=$(backlog_next_slug)
   if [[ -n "$next_slug" ]]; then
-    log_info "Starting first discovered item: ${W}$next_slug${N}"
+    log_info "$(printf "$I18N_AUTO_FIRST_DISCOVERED" "$next_slug")"
     rm -f "$HARN_DIR/current"
     cmd_start "$next_slug"
   fi
@@ -3530,7 +3970,7 @@ cmd_auto() {
 
 cmd_all() {
   if [[ ! -f "$BACKLOG_FILE" ]]; then
-    log_err "Backlog file not found: $BACKLOG_FILE"
+    log_err "$I18N_ALL_NO_BACKLOG $BACKLOG_FILE"
     exit 1
   fi
 
@@ -3538,8 +3978,8 @@ cmd_all() {
   slugs=$(backlog_pending_slugs)
 
   if [[ -z "$slugs" ]]; then
-    log_warn "No pending items in backlog."
-    log_info "To add items: ${W}harn discover${N}  or  ${W}harn add${N}"
+    log_warn "$I18N_ALL_NO_PENDING"
+    log_info "$I18N_ALL_HINT"
     return 0
   fi
 
@@ -3549,7 +3989,7 @@ cmd_all() {
   done <<< "$slugs"
 
   local total_items="${#slug_array[@]}"
-  log_step "Full automated run — ${W}${total_items}${N} item(s)"
+  log_step "$I18N_ALL_STEP ${W}${total_items}${N} item(s)"
   echo ""
   local i=1
   for slug in "${slug_array[@]}"; do
@@ -3567,7 +4007,7 @@ cmd_all() {
 
   for slug in "${slug_array[@]}"; do
     item_num=$(( item_num + 1 ))
-    log_step "[$item_num/$total_items] Starting item: ${W}$slug${N}"
+    log_step "$(printf "$I18N_ALL_STARTING" "$item_num" "$total_items" "$slug")"
 
     # Reset run pointer (so cmd_start creates a new run)
     rm -f "$HARN_DIR/current"
@@ -3578,9 +4018,9 @@ cmd_all() {
       finished_run=$(ls -dt "$HARN_DIR/runs/"*/ 2>/dev/null | head -1)
       finished_run="${finished_run%/}"
       [[ -n "$finished_run" ]] && completed_run_dirs+=("$finished_run")
-      log_ok "[$item_num/$total_items] Complete: ${W}$slug${N}"
+      log_ok "$(printf "$I18N_ALL_COMPLETE_ITEM" "$item_num" "$total_items" "$slug")"
     else
-      log_err "[$item_num/$total_items] Failed: ${W}$slug${N} — continuing with next item"
+      log_err "$(printf "$I18N_ALL_FAILED_ITEM" "$item_num" "$total_items" "$slug")"
       failed_slugs+=("$slug")
     fi
     echo ""
@@ -3598,17 +4038,17 @@ cmd_all() {
   _log_raw "${G}  ╚══════════════════════════════════════════════════════════╝${N}"
 
   if [[ $fail_count -gt 0 ]]; then
-    log_warn "Failed items: ${failed_slugs[*]}"
-    log_info "Re-run failed items manually: ${W}harn start <slug>${N}"
+    log_warn "$I18N_ALL_FAILED_ITEMS ${failed_slugs[*]}"
+    log_info "$I18N_ALL_RETRY_HINT"
   fi
 
   # ── Retrospective: run sequentially for all completed items ─────────────────
   if [[ $done_count -gt 0 ]]; then
-    log_step "Running retrospective (${done_count} item(s))"
+    log_step "$(printf "$I18N_ALL_RETRO_STEP" "$done_count")"
     for run_dir in "${completed_run_dirs[@]}"; do
       local item_slug
       item_slug=$(cat "$run_dir/prompt.txt" 2>/dev/null || basename "$run_dir")
-      log_info "Retrospective: ${W}$item_slug${N}"
+      log_info "$(printf "$I18N_ALL_RETRO_ITEM" "$item_slug")"
       cmd_retrospective "$run_dir" || true
     done
   fi
@@ -3618,18 +4058,18 @@ cmd_status() {
   local run_id run_dir sprint_num
   run_id=$(current_run_id)
   if [[ -z "$run_id" ]]; then
-    log_warn "No active run. Start with: ${W}harn start${N}"
+    log_warn "$I18N_STATUS_NO_RUN"
     return 0
   fi
   run_dir="$HARN_DIR/runs/$run_id"
   sprint_num=$(current_sprint_num "$run_dir")
 
-  echo -e "${W}Run ID:${N}    $run_id"
-  echo -e "${W}Item:${N}      $(cat "$run_dir/prompt.txt" 2>/dev/null || echo "(unknown)")"
-  echo -e "${W}Current sprint:${N} $sprint_num"
+  echo -e "${W}$I18N_STATUS_RUN_ID${N}    $run_id"
+  echo -e "${W}$I18N_STATUS_ITEM${N}      $(cat "$run_dir/prompt.txt" 2>/dev/null || echo "(unknown)")"
+  echo -e "${W}$I18N_STATUS_SPRINT${N} $sprint_num"
 
   echo ""
-  echo -e "${W}Sprints:${N}"
+  echo -e "${W}$I18N_STATUS_SPRINTS${N}"
   local any=0
   for s in "$run_dir/sprints"/*/; do
     [[ -d "$s" ]] || continue
@@ -3650,39 +4090,39 @@ cmd_status() {
 
     echo -e "  Sprint $sn  $icon $status_label  (iterations: $iter)"
   done
-  [[ $any -eq 0 ]] && echo "  (no sprints)"
+  [[ $any -eq 0 ]] && echo "  $I18N_STATUS_NO_SPRINTS"
 }
 
 cmd_config() {
   local sub="${1:-show}"
   case "$sub" in
     show)
-      echo -e "${W}harn Configuration${N}  (${CONFIG_FILE})"
-      echo -e "  Project:           ${W}$ROOT_DIR${N}"
-      echo -e "  Language:          ${W}$HARN_LANG${N}  ($I18N_LANG_NAME)"
-      echo -e "  Backlog file:      ${W}$BACKLOG_FILE${N}"
-      echo -e "  Max retries:       ${W}$MAX_ITERATIONS${N}"
-      echo -e "  Git integration:   ${W}$GIT_ENABLED${N}"
+      echo -e "${W}$I18N_CONFIG_TITLE${N}  (${CONFIG_FILE})"
+      echo -e "${I18N_CONFIG_PROJECT}${W}$ROOT_DIR${N}"
+      echo -e "${I18N_CONFIG_LANGUAGE}${W}$HARN_LANG${N}  ($I18N_LANG_NAME)"
+      echo -e "${I18N_CONFIG_BACKLOG_KEY}${W}$BACKLOG_FILE${N}"
+      echo -e "${I18N_CONFIG_MAX_RETRIES_KEY}${W}$MAX_ITERATIONS${N}"
+      echo -e "${I18N_CONFIG_GIT_KEY}${W}$GIT_ENABLED${N}"
       [[ "$GIT_ENABLED" == "true" ]] && {
-        echo -e "  Base working branch: ${W}$GIT_BASE_BRANCH${N}$( [[ "$GIT_BASE_BRANCH" == "current" ]] && echo "  ${D}(= current git branch at runtime)${N}" )"
-        echo -e "  PR target branch:  ${W}${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}${N}"
-        echo -e "  Auto push:         ${W}$GIT_AUTO_PUSH${N}"
-        echo -e "  Auto PR:           ${W}$GIT_AUTO_PR${N}"
+        echo -e "${I18N_CONFIG_BASE_BRANCH_KEY}${W}$GIT_BASE_BRANCH${N}$( [[ "$GIT_BASE_BRANCH" == "current" ]] && echo "  ${D}(= current git branch at runtime)${N}" )"
+        echo -e "${I18N_CONFIG_PR_TARGET_KEY}${W}${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}${N}"
+        echo -e "${I18N_CONFIG_AUTO_PUSH_KEY}${W}$GIT_AUTO_PUSH${N}"
+        echo -e "${I18N_CONFIG_AUTO_PR_KEY}${W}$GIT_AUTO_PR${N}"
       }
       echo ""
-      echo -e "${W}AI Models${N}"
+      echo -e "${W}$I18N_CONFIG_AI_MODELS${N}"
       echo -e "  Planner:           ${W}$COPILOT_MODEL_PLANNER${N}"
       echo -e "  Generator (contract): ${W}$COPILOT_MODEL_GENERATOR_CONTRACT${N}"
       echo -e "  Generator (impl):  ${W}$COPILOT_MODEL_GENERATOR_IMPL${N}"
       echo -e "  Evaluator (contract): ${W}$COPILOT_MODEL_EVALUATOR_CONTRACT${N}"
       echo -e "  Evaluator (QA):    ${W}$COPILOT_MODEL_EVALUATOR_QA${N}"
-      [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]] && echo -e "\n  Custom prompts:    ${W}$PROMPTS_DIR${N}"
+      [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]] && echo -e "\n${I18N_CONFIG_CUSTOM_PROMPTS_KEY}${W}$PROMPTS_DIR${N}"
       ;;
     set)
       local key="${2:-}" val="${3:-}"
       [[ -z "$key" || -z "$val" ]] && { log_err "$I18N_CONFIG_SET_USAGE"; exit 1; }
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_err "No .harn_config file. Run ${W}harn init${N} first."
+        log_err "$I18N_CONFIG_NO_FILE"
         exit 1
       fi
       # LANG → write as LANG_OVERRIDE
@@ -3697,22 +4137,22 @@ cmd_config() {
       ;;
     regen)
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_err ".harn_config file not found. Run ${W}harn init${N} first."
+        log_err "$I18N_CONFIG_SET_FILE_NOT_FOUND"
         exit 1
       fi
       local ai_cmd; ai_cmd=$(_detect_ai_cli)
       if [[ -z "$ai_cmd" ]]; then
-        log_err "No AI CLI found. Install copilot or claude."
+        log_err "$I18N_CONFIG_NO_CLI"
         exit 1
       fi
       local hp="${HINT_PLANNER:-}" hg="${HINT_GENERATOR:-}" he="${HINT_EVALUATOR:-}" gg="${GIT_GUIDE:-}"
       if [[ -z "$hp" && -z "$hg" && -z "$he" && -z "$gg" ]]; then
-        log_warn "No HINT_* / GIT_GUIDE values in config. Nothing to regenerate."
-        log_info "To add hints: ${W}harn config set HINT_PLANNER \"hint content\"${N}"
+        log_warn "$I18N_CONFIG_NO_HINTS"
+        log_info "$I18N_CONFIG_HINT_HOW"
         exit 0
       fi
-      log_step "Regenerating custom prompts"
-      log_info "Regenerating prompts with AI CLI (${W}${ai_cmd}${N})..."
+      log_step "$I18N_CONFIG_REGEN_STEP"
+      log_info "$(printf "$I18N_CONFIG_REGEN_INFO" "$ai_cmd")"
       _generate_custom_prompts "$hp" "$hg" "$he" "$gg"
       local cpd=".harn/prompts"
       if ! grep -q "^CUSTOM_PROMPTS_DIR=" "$CONFIG_FILE"; then
@@ -3721,18 +4161,18 @@ cmd_config() {
         sed -i '' "s|^CUSTOM_PROMPTS_DIR=.*|CUSTOM_PROMPTS_DIR=\"${cpd}\"|" "$CONFIG_FILE"
       fi
       load_config
-      log_ok "Custom prompts regenerated: ${W}$PROMPTS_DIR${N}"
+      log_ok "$(printf "$I18N_CONFIG_REGEN_DONE" "$PROMPTS_DIR")"
       ;;
     *)
-      log_err "Unknown config subcommand: $sub"
-      echo -e "Usage: harn config [show|set KEY VALUE|regen]"
+      log_err "$I18N_CONFIG_UNKNOWN_SUB $sub"
+      echo -e "$I18N_CONFIG_USAGE"
       exit 1
       ;;
   esac
 }
 
 cmd_runs() {
-  echo -e "${W}Harness runs:${N}"
+  echo -e "${W}$I18N_RUNS_TITLE${N}"
   local current_id; current_id=$(current_run_id)
   for d in "$HARN_DIR/runs"/*/; do
     [[ -d "$d" ]] || continue
@@ -3746,11 +4186,11 @@ cmd_runs() {
 
 cmd_resume() {
   local run_id="${1:-}"
-  [[ -z "$run_id" ]] && { log_err "Usage: harn resume <run-id>"; exit 1; }
+  [[ -z "$run_id" ]] && { log_err "$I18N_RESUME_USAGE"; exit 1; }
   local run_dir="$HARN_DIR/runs/$run_id"
-  [[ ! -d "$run_dir" ]] && { log_err "Run not found: $run_id"; exit 1; }
+  [[ ! -d "$run_dir" ]] && { log_err "$I18N_RESUME_NOT_FOUND $run_id"; exit 1; }
   ln -sfn "$run_dir" "$HARN_DIR/current"
-  log_ok "Resumed: $run_id"
+  log_ok "$I18N_RESUME_OK $run_id"
   cmd_status
 }
 
@@ -3762,16 +4202,16 @@ cmd_tail() {
     local latest_log
     latest_log=$(ls -t "$HARN_DIR/runs"/*/run.log 2>/dev/null | head -1)
     if [[ -n "$latest_log" ]]; then
-      log_warn "No current.log — falling back to latest run log: $latest_log"
+      log_warn "$I18N_TAIL_FALLBACK $latest_log"
       ln -sfn "$latest_log" "$HARN_DIR/current.log"
       log="$latest_log"
     else
-      log_err "No active log. Start a run first: harn auto"
+      log_err "$I18N_TAIL_NO_LOG"
       exit 1
     fi
   fi
 
-  echo -e "${W}Tailing log:${N} $log  ${B}(Ctrl-C to stop)${N}"
+  echo -e "${W}$I18N_TAIL_TAILING${N} $log  ${B}(Ctrl-C to stop)${N}"
   tail -f "$log"
 }
 
@@ -4030,13 +4470,13 @@ cmd_base() {
     # No argument — set to current branch
     target=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     if [[ -z "$target" || "$target" == "HEAD" ]]; then
-      log_err "Cannot determine current branch"
+      log_err "$I18N_BASE_NO_BRANCH"
       return 1
     fi
   fi
 
   if [[ ! -f "$CONFIG_FILE" ]]; then
-    log_err "No .harn_config found. Run: ${W}harn init${N}"
+    log_err "$I18N_BASE_NO_CONFIG"
     return 1
   fi
 
@@ -4049,10 +4489,10 @@ cmd_base() {
 
   if [[ "$target" == "current" ]]; then
     local actual; actual=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-    log_ok "Base branch → ${W}current${N}  ${D}(resolves to: ${actual})${N}"
-    log_info "harn will work on whichever branch is active at runtime"
+    log_ok "$(printf "$I18N_BASE_SET_CURRENT" "$actual")"
+    log_info "$I18N_BASE_SET_CURRENT_HINT"
   else
-    log_ok "Base branch → ${W}${target}${N}  ${D}(was: ${prev})${N}"
+    log_ok "$(printf "$I18N_BASE_SET" "$target" "$prev")"
   fi
 }
 
