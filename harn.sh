@@ -2394,14 +2394,6 @@ invoke_role() {
   esac
   log_agent_start "$_role_label" "$role_label" "output → $(basename "$output_file")"
 
-  # Start guidance listener (bottom input bar) — after the header box is drawn
-  local inbox_file=""
-  local run_id; run_id=$(current_run_id)
-  if [[ -n "$run_id" ]]; then
-    inbox_file="$HARN_DIR/runs/$run_id/inbox.md"
-    _start_guidance_listener "$inbox_file"
-  fi
-
   local exit_code=0
   case "$backend" in
     claude)
@@ -2423,12 +2415,6 @@ invoke_role() {
       exit_code=$?
       ;;
   esac
-
-  # Stop listener and process any received messages
-  _stop_guidance_listener "$GUIDANCE_LISTENER_PID"
-  if [[ -n "$inbox_file" && -f "$inbox_file" && -s "$inbox_file" ]]; then
-    _process_inbox "$inbox_file"
-  fi
 
   return $exit_code
 }
