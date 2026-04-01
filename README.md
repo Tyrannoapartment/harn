@@ -126,7 +126,7 @@ Select backlog item
     │  ┌─ Implement → Evaluate  (up to MAX_ITERATIONS) ─────────────┐    │
     │  │  [Generator]  implement           MODEL_GENERATOR_IMPL     │    │
     │  │      ↓   Git: commit + push                                │    │
-    │  │  [Evaluator]  lint / test / E2E (auto-detect or configured) │    │
+    │  │  [Evaluator]  lint / test / E2E                            │    │
     │  │               VERDICT: PASS → next sprint                  │    │
     │  │               VERDICT: FAIL → Generator retries            │    │
     │  │                               (MODEL_GENERATOR_CONTRACT)   │    │
