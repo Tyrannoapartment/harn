@@ -11,7 +11,7 @@ Automates a **Planner → Generator → Evaluator** loop that takes a backlog it
 | Tool | Purpose |
 |------|---------|
 | `python3` | Backlog parsing, markdown rendering |
-| `copilot` or `claude` | AI agent execution |
+| `copilot`, `claude`, `codex`, or `gemini` | AI agent execution (at least one required) |
 
 ---
 
@@ -22,19 +22,6 @@ Automates a **Planner → Generator → Evaluator** loop that takes a backlog it
 ```bash
 npm install -g @tyrannoapartment/harn
 ```
-
-### via GitHub Packages
-
-```bash
-npm install -g @tyrannoapartment/harn --registry=https://npm.pkg.github.com
-```
-
-> **Note**: GitHub Packages requires authentication:
-> ```bash
-> npm login --registry=https://npm.pkg.github.com
-> # Username: your GitHub username
-> # Password: a GitHub Personal Access Token with read:packages scope
-> ```
 
 ### Manual (git clone)
 
@@ -71,6 +58,7 @@ harn start
 | Command | Description |
 |---------|-------------|
 | `harn init` | Initial setup wizard (or re-run to reconfigure) |
+| `harn doctor` | Check dependencies and configuration |
 | `harn config` | Show current config |
 | `harn config set KEY VALUE` | Update a config value |
 | `harn config regen` | Regenerate custom prompts from HINT_* in config |
@@ -81,6 +69,7 @@ harn start
 |---------|-------------|
 | `harn backlog` | Show pending backlog items |
 | `harn auto` | Resume if in-progress, start if pending, discover if empty |
+| `harn all` | Run all pending backlog items sequentially |
 | `harn start` | Select a backlog item and run the full loop |
 | `harn discover` | Analyze codebase and suggest new backlog items |
 | `harn add` | Manually add a backlog item |
@@ -163,6 +152,25 @@ backlog item → Done  +  git commit
 
 ---
 
+## Supported AI Backends
+
+harn auto-detects installed CLIs in this order: `copilot` → `claude` → `codex` → `gemini`.
+
+| CLI | Install |
+|-----|---------|
+| GitHub Copilot CLI (`copilot`) | `gh extension install github/gh-copilot` |
+| Anthropic Claude Code (`claude`) | `npm install -g @anthropic-ai/claude-code` |
+| OpenAI Codex CLI (`codex`) | `npm install -g @openai/codex` |
+| Google Gemini CLI (`gemini`) | `npm install -g @google/gemini-cli` |
+
+Override the backend per-run or in config:
+
+```bash
+harn config set AI_BACKEND claude
+```
+
+---
+
 ## AI Models (defaults)
 
 | Role | Default model |
@@ -190,6 +198,8 @@ Auto-generated on first run or `harn init`.
 
 BACKLOG_FILE="docs/planner/sprint-backlog.md"
 MAX_ITERATIONS=5
+
+AI_BACKEND="copilot"
 
 MODEL_PLANNER="claude-haiku-4.5"
 MODEL_GENERATOR_CONTRACT="claude-sonnet-4.6"
