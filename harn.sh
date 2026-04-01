@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.3"
+HARN_VERSION="1.1.4"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -2627,40 +2627,38 @@ Rules:
     return 0
   fi
 
-  # Add to Pending section (items passed via stdin — prevents quote conflicts)
-  printf '%s' "${new_items}" | python3 - "$BACKLOG_FILE" <<'PYEOF'
+  # Add to Pending section via temp file (pipe + heredoc stdin conflict workaround)
+  local items_tmp; items_tmp=$(mktemp)
+  printf '%s' "${new_items}" > "$items_tmp"
+  python3 - "$BACKLOG_FILE" "$items_tmp" <<'PYEOF'
 import sys, re
 
-path = sys.argv[1]
-new_items_text = sys.stdin.read().strip()
+path       = sys.argv[1]
+items_file = sys.argv[2]
+new_items_text = open(items_file, encoding='utf-8').read().strip()
 if not new_items_text:
     sys.exit(0)
 
 content = open(path, encoding='utf-8').read()
 lines = content.splitlines()
 
-# Find end of ## Pending section and insert there
+# Find ## Pending section
 pending_start = None
-next_section = None
 for i, line in enumerate(lines):
     if re.match(r'^## Pending\s*$', line):
         pending_start = i
-    elif pending_start is not None and re.match(r'^## ', line):
-        next_section = i
         break
 
 insert_lines = [''] + new_items_text.splitlines() + ['']
 
 if pending_start is None:
-    # No ## Pending section — append to end of file
     lines += ['', '## Pending'] + insert_lines
 else:
-    # Insert right after the ## Pending header
-    insert_at = pending_start + 1
-    lines[insert_at:insert_at] = insert_lines
+    lines[pending_start + 1:pending_start + 1] = insert_lines
 
 open(path, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PYEOF
+  rm -f "$items_tmp"
 
   echo ""
   log_ok "Added to backlog:"
