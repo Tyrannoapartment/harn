@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.0.7"
+HARN_VERSION="1.0.8"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -487,6 +487,13 @@ load_config() {
   # Apply AI_BACKEND from config (env override takes precedence)
   AI_BACKEND="${HARNESS_AI_BACKEND:-${AI_BACKEND:-}}"
 
+  # Per-role backend overrides (fall back to global AI_BACKEND)
+  AI_BACKEND_PLANNER="${AI_BACKEND_PLANNER:-$AI_BACKEND}"
+  AI_BACKEND_GENERATOR_CONTRACT="${AI_BACKEND_GENERATOR_CONTRACT:-$AI_BACKEND}"
+  AI_BACKEND_GENERATOR_IMPL="${AI_BACKEND_GENERATOR_IMPL:-$AI_BACKEND}"
+  AI_BACKEND_EVALUATOR_CONTRACT="${AI_BACKEND_EVALUATOR_CONTRACT:-$AI_BACKEND}"
+  AI_BACKEND_EVALUATOR_QA="${AI_BACKEND_EVALUATOR_QA:-$AI_BACKEND}"
+
   # Apply sprint settings from config
   SPRINT_COUNT="${SPRINT_COUNT:-2}"
   SPRINT_ROLES="${SPRINT_ROLES:-}"
@@ -721,22 +728,34 @@ cmd_init() {
   _check_ai_cli_installed || return 1
   _select_ai_backend
 
-  # ── AI model settings ─────────────────────────────────────────────────────────
-  echo -e "\n${W}AI model settings${N} (Enter = use default)"
-  printf "Planner model         [claude-haiku-4.5]: "
-  local mp; mp=$(_input_readline); echo ""; mp="${mp:-claude-haiku-4.5}"
+  # ── AI model settings (per role) ──────────────────────────────────────────────
+  echo -e "\n${W}AI model settings${N} — select AI tool and model for each role"
+  echo -e "  ${D}Use ↑↓ arrows to navigate, Enter to select, Ctrl+Q to cancel init${N}\n"
 
-  printf "Generator model (contract) [claude-sonnet-4.6]: "
-  local mgc; mgc=$(_input_readline); echo ""; mgc="${mgc:-claude-sonnet-4.6}"
+  local mp mp_backend _tmp_p
+  _tmp_p=$(_pick_role_model "Planner" "${AI_BACKEND:-copilot}" "claude-haiku-4.5") \
+    || { echo ""; log_info "Init cancelled"; return 0; }
+  read -r mp_backend mp <<< "$_tmp_p"
 
-  printf "Generator model (impl) [claude-opus-4.6]: "
-  local mgi; mgi=$(_input_readline); echo ""; mgi="${mgi:-claude-opus-4.6}"
+  local mgc mgc_backend _tmp_gc
+  _tmp_gc=$(_pick_role_model "Generator (contract)" "${AI_BACKEND:-copilot}" "claude-sonnet-4.6") \
+    || { echo ""; log_info "Init cancelled"; return 0; }
+  read -r mgc_backend mgc <<< "$_tmp_gc"
 
-  printf "Evaluator model (contract) [claude-haiku-4.5]: "
-  local mec; mec=$(_input_readline); echo ""; mec="${mec:-claude-haiku-4.5}"
+  local mgi mgi_backend _tmp_gi
+  _tmp_gi=$(_pick_role_model "Generator (impl)" "${AI_BACKEND:-copilot}" "claude-opus-4.6") \
+    || { echo ""; log_info "Init cancelled"; return 0; }
+  read -r mgi_backend mgi <<< "$_tmp_gi"
 
-  printf "Evaluator model (QA)  [claude-sonnet-4.5]: "
-  local meq; meq=$(_input_readline); echo ""; meq="${meq:-claude-sonnet-4.5}"
+  local mec mec_backend _tmp_ec
+  _tmp_ec=$(_pick_role_model "Evaluator (contract)" "${AI_BACKEND:-copilot}" "claude-haiku-4.5") \
+    || { echo ""; log_info "Init cancelled"; return 0; }
+  read -r mec_backend mec <<< "$_tmp_ec"
+
+  local meq meq_backend _tmp_eq
+  _tmp_eq=$(_pick_role_model "Evaluator (QA)" "${AI_BACKEND:-copilot}" "claude-sonnet-4.5") \
+    || { echo ""; log_info "Init cancelled"; return 0; }
+  read -r meq_backend meq <<< "$_tmp_eq"
 
   # ── Sprint structure ──────────────────────────────────────────────────────────
   echo -e "\n${W}Sprint structure${N}"
@@ -835,6 +854,11 @@ SPRINT_ROLES="${sprint_roles_str}"
 
 # === AI backend ===
 AI_BACKEND="${AI_BACKEND}"
+AI_BACKEND_PLANNER="${mp_backend}"
+AI_BACKEND_GENERATOR_CONTRACT="${mgc_backend}"
+AI_BACKEND_GENERATOR_IMPL="${mgi_backend}"
+AI_BACKEND_EVALUATOR_CONTRACT="${mec_backend}"
+AI_BACKEND_EVALUATOR_QA="${meq_backend}"
 
 # === AI model settings ===
 MODEL_PLANNER="${mp}"
@@ -1162,8 +1186,18 @@ invoke_copilot() {
 }
 
 invoke_role() {
-  local role_key="$1" prompt_input="$2" output_file="$3" role_label="$4" prompt_mode="${5:-inline}" model="${6:-}"
-  local backend; backend=$(_detect_ai_cli)
+  local role_key="$1" prompt_input="$2" output_file="$3" role_label="$4" prompt_mode="${5:-inline}" model="${6:-}" role_detail="${7:-$role_key}"
+  # Determine backend for this specific role
+  local backend
+  case "$role_detail" in
+    planner)             backend="${AI_BACKEND_PLANNER:-}" ;;
+    generator_contract)  backend="${AI_BACKEND_GENERATOR_CONTRACT:-}" ;;
+    generator_impl)      backend="${AI_BACKEND_GENERATOR_IMPL:-}" ;;
+    evaluator_contract)  backend="${AI_BACKEND_EVALUATOR_CONTRACT:-}" ;;
+    evaluator_qa)        backend="${AI_BACKEND_EVALUATOR_QA:-}" ;;
+  esac
+  [[ -z "$backend" ]] && backend=$(_detect_ai_cli)
+  [[ -z "$backend" ]] && backend="copilot"
 
   case "$backend" in
     claude)
@@ -1387,7 +1421,7 @@ Use the following section markers exactly in your output:
 [Sprint backlog content]"
 
   local raw="$run_dir/plan-raw.md"
-  invoke_role "planner" "$prompt" "$raw" "Planner — expand backlog item into sprint spec" "inline" "$COPILOT_MODEL_PLANNER"
+  invoke_role "planner" "$prompt" "$raw" "Planner — expand backlog item into sprint spec" "inline" "$COPILOT_MODEL_PLANNER" "planner"
 
   awk '/^=== plan\.text ===$/{f=1;next} /^=== spec\.md ===$/{f=0} f{print}' "$raw" \
     > "$run_dir/plan.txt"
@@ -1540,7 +1574,7 @@ EOF
     USER_EXTRA_INSTRUCTIONS=""
   fi
 
-  invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal.md" "Generator — Sprint $sprint_num scope proposal" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT"
+  invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal.md" "Generator — Sprint $sprint_num scope proposal" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT" "generator_contract"
 
   log_info "Evaluator reviewing scope..."
   local eval_prompt
@@ -1557,7 +1591,7 @@ $(cat "$sprint/contract-proposal.md")
 **If clear and verifiable**: write \`APPROVED\` on its own line with a brief confirmation.
 **If revision needed**: write \`NEEDS_REVISION\` on its own line and list specific revisions needed."
 
-  invoke_role "evaluator" "$eval_prompt" "$sprint/contract-review.md" "Evaluator — Sprint $sprint_num scope review" "inline" "$COPILOT_MODEL_EVALUATOR_CONTRACT"
+  invoke_role "evaluator" "$eval_prompt" "$sprint/contract-review.md" "Evaluator — Sprint $sprint_num scope review" "inline" "$COPILOT_MODEL_EVALUATOR_CONTRACT" "evaluator_contract"
 
   if grep -qi 'APPROVED' "$sprint/contract-review.md"; then
     cp "$sprint/contract-proposal.md" "$sprint/contract.md"
@@ -3024,7 +3058,7 @@ esac
 
 cmd_doctor() {
   echo -e "\n${W}╔══════════════════════════════════════╗${N}"
-  echo -e "${W}║          harn doctor  🩺              ║${N}"
+  echo -e "${W}║            harn doctor               ║${N}"
   echo -e "${W}╚══════════════════════════════════════╝${N}\n"
 
   # ── Version ─────────────────────────────────────────────────────────────────
