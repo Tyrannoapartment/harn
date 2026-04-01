@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.0.8"
+HARN_VERSION="1.0.9"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -426,7 +426,7 @@ if selected and not cancelled:
     print(selected, end="")
     sys.exit(0)
 sys.exit(1)
-' -- "$menu_prompt" "$default_idx" "${items[@]}"
+' "$menu_prompt" "$default_idx" "${items[@]}"
 }
 
 COPILOT_MODEL_FLAG_SUPPORT=""
@@ -1608,7 +1608,7 @@ $(cat "$sprint/contract-review.md")
 
 Please revise the scope incorporating the above feedback.
 EOF
-    invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal-v2.md" "Generator — Sprint $sprint_num scope revision" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT"
+    invoke_role "generator" "$gen_prompt_file" "$sprint/contract-proposal-v2.md" "Generator — Sprint $sprint_num scope revision" "file" "$COPILOT_MODEL_GENERATOR_CONTRACT" "generator_contract"
     cp "$sprint/contract-proposal-v2.md" "$sprint/contract.md"
     log_ok "Sprint $sprint_num scope revision complete"
   fi
@@ -1695,7 +1695,7 @@ EOF
   local impl_model="$COPILOT_MODEL_GENERATOR_IMPL"
   [[ $iteration -gt 1 ]] && impl_model="$COPILOT_MODEL_GENERATOR_CONTRACT"
 
-  invoke_role "generator" "$prompt_file" "$sprint/implementation-iter${iteration}.md" "Generator — Sprint $sprint_num implementation (iteration $iteration)" "file" "$impl_model"
+  invoke_role "generator" "$prompt_file" "$sprint/implementation-iter${iteration}.md" "Generator — Sprint $sprint_num implementation (iteration $iteration)" "file" "$impl_model" "generator_impl"
   cp "$sprint/implementation-iter${iteration}.md" "$sprint/implementation.md"
 
   log_ok "Sprint $sprint_num implementation complete (iteration $iteration)"
@@ -1825,7 +1825,7 @@ Write exactly one line at the end of the report:
 \`VERDICT: PASS\`  or  \`VERDICT: FAIL\`"
 
   local eval_exit_code=0
-  invoke_role "evaluator" "$eval_prompt" "$sprint/qa-report.md" "Evaluator — Sprint $sprint_num QA (iteration $iteration)" "inline" "$COPILOT_MODEL_EVALUATOR_QA" || eval_exit_code=$?
+  invoke_role "evaluator" "$eval_prompt" "$sprint/qa-report.md" "Evaluator — Sprint $sprint_num QA (iteration $iteration)" "inline" "$COPILOT_MODEL_EVALUATOR_QA" "evaluator_qa" || eval_exit_code=$?
 
   # Clean up background processes tracked in e2e-env.txt (if any)
   if [[ -f "$sprint/e2e-env.txt" ]]; then
@@ -1893,7 +1893,7 @@ Write a completion summary for the full work (max 300 chars):
 1. Summary of what was implemented
 2. Key changed files
 3. Known limitations or follow-up tasks" \
-    "$sprint/handoff.md" "Evaluator — final completion summary" "inline" "$COPILOT_MODEL_EVALUATOR_QA"
+    "$sprint/handoff.md" "Evaluator — final completion summary" "inline" "$COPILOT_MODEL_EVALUATOR_QA" "evaluator_qa"
 
   # Backlog → Done move
   local slug_or_prompt
@@ -2461,7 +2461,7 @@ Rules:
 - 2–4 items only
 - No duplicates with existing backlog"
 
-  invoke_role "planner" "$prompt" "$out_file" "Analyst — discover new backlog items" "inline" "$COPILOT_MODEL_PLANNER"
+  invoke_role "planner" "$prompt" "$out_file" "Analyst — discover new backlog items" "inline" "$COPILOT_MODEL_PLANNER" "planner"
 
   # Extract content after section marker
   local new_items
@@ -3191,6 +3191,52 @@ cmd_doctor() {
   fi
 }
 
+cmd_auth() {
+  local sub="${1:-status}"
+  case "$sub" in
+    status)
+      echo -e "\n${W}▸ GitHub CLI auth status${N}"
+      if command -v gh &>/dev/null; then
+        gh auth status 2>&1 | while IFS= read -r line; do echo "  $line"; done
+      else
+        log_err "gh CLI not found. Install: https://cli.github.com"
+      fi
+      echo ""
+      ;;
+    login)
+      echo -e "\n${W}GitHub CLI login${N}"
+      if ! command -v gh &>/dev/null; then
+        log_err "gh CLI not found. Install: brew install gh"
+        return 1
+      fi
+      gh auth login
+      ;;
+    logout)
+      echo -e "\n${W}GitHub CLI logout${N}"
+      if ! command -v gh &>/dev/null; then
+        log_err "gh CLI not found"
+        return 1
+      fi
+      gh auth logout
+      ;;
+    token)
+      # Show current token or refresh
+      if ! command -v gh &>/dev/null; then
+        log_err "gh CLI not found"
+        return 1
+      fi
+      gh auth token
+      ;;
+    *)
+      echo -e "Usage: ${W}harn auth${N} [status|login|logout|token]"
+      echo -e "  ${W}status${N}   Show current GitHub authentication status"
+      echo -e "  ${W}login${N}    Log in to GitHub via browser or token"
+      echo -e "  ${W}logout${N}   Log out from GitHub"
+      echo -e "  ${W}token${N}    Show the current auth token"
+      ;;
+  esac
+}
+
 # ── Routing ───────────────────────────────────────────────────────────────────
 case "${1:-help}" in
   init)      cmd_init ;;
@@ -3208,6 +3254,7 @@ case "${1:-help}" in
   config)    cmd_config "${2:-show}" "${3:-}" "${4:-}" ;;
   backlog)   cmd_backlog ;;
   status)    cmd_status ;;
+  auth)      cmd_auth "${2:-status}" ;;
   doctor)    cmd_doctor ;;
   tail)      cmd_tail ;;
   runs)      cmd_runs ;;
