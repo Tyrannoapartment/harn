@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.5.0"
+HARN_VERSION="1.5.1"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -4415,8 +4415,7 @@ cmd_doctor() {
     echo -e "  ${G}✓${N} copilot:      ${C}${cp_ver}${N}"
     backend_ok=1
   else
-    echo -e "  ${R}✗${N} copilot:      ${I18N_DOCTOR_NOT_FOUND}"
-    echo -e "    ${I18N_DOCTOR_INSTALL}: ${W}gh extension install github/gh-copilot${N}"
+    echo -e "  ${D}–${N} copilot:      ${I18N_DOCTOR_NOT_FOUND}"
   fi
 
   if command -v claude &>/dev/null; then
@@ -4424,8 +4423,23 @@ cmd_doctor() {
     echo -e "  ${G}✓${N} claude:       ${C}${cl_ver}${N}"
     backend_ok=1
   else
-    echo -e "  ${R}✗${N} claude:       ${I18N_DOCTOR_NOT_FOUND}"
-    echo -e "    ${I18N_DOCTOR_INSTALL}: ${W}npm install -g @anthropic-ai/claude-code${N}"
+    echo -e "  ${D}–${N} claude:       ${I18N_DOCTOR_NOT_FOUND}"
+  fi
+
+  if command -v codex &>/dev/null; then
+    local cx_ver; cx_ver=$(codex --version 2>/dev/null | head -1 || echo "installed")
+    echo -e "  ${G}✓${N} codex:        ${C}${cx_ver}${N}"
+    backend_ok=1
+  else
+    echo -e "  ${D}–${N} codex:        ${I18N_DOCTOR_NOT_FOUND}"
+  fi
+
+  if command -v gemini &>/dev/null; then
+    local gm_ver; gm_ver=$(gemini --version 2>/dev/null | head -1 || echo "installed")
+    echo -e "  ${G}✓${N} gemini:       ${C}${gm_ver}${N}"
+    backend_ok=1
+  else
+    echo -e "  ${D}–${N} gemini:       ${I18N_DOCTOR_NOT_FOUND}"
   fi
 
   if [[ -n "${AI_BACKEND:-}" ]]; then
