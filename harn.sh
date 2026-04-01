@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.5.3"
+HARN_VERSION="1.5.4"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
