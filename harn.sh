@@ -14,9 +14,13 @@ set -euo pipefail
 
 HARN_VERSION="1.0.0"
 
-# Resolve symlink to find the actual script location
+# Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
-while [[ -L "$_THIS" ]]; do _THIS="$(readlink "$_THIS")"; done
+while [[ -L "$_THIS" ]]; do
+  _DIR="$(cd "$(dirname "$_THIS")" && pwd)"
+  _THIS="$(readlink "$_THIS")"
+  [[ "$_THIS" != /* ]] && _THIS="$_DIR/$_THIS"
+done
 SCRIPT_DIR="$(cd "$(dirname "$_THIS")" && pwd)"
 ROOT_DIR="$(pwd)"
 HARNESS_DIR="$ROOT_DIR/.harness"
