@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.4"
+HARN_VERSION="1.1.5"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -812,7 +812,7 @@ cmd_init() {
 
   if [[ "$git_yn" == "y" || "$git_yn" == "Y" ]]; then
     git_en="true"
-    printf "Base working branch (branch off from) [main]: "
+    printf "Base working branch (branch off from, or 'current' to always use active branch) [main]: "
     local gb; gb=$(_input_readline); echo ""; git_branch="${gb:-main}"
 
     printf "PR target branch (where PRs are merged into) [%s]: " "$git_branch"
@@ -2004,12 +2004,62 @@ _git_url_to_nwo() {
 
 # ── Git planning branch creation & Draft PR ──────────────────────────────────
 # Called after cmd_plan: create branch → commit backlog → create Draft PR
+_resolve_base_branch() {
+  # If GIT_BASE_BRANCH is "current", resolve to actual current branch
+  if [[ "${GIT_BASE_BRANCH:-}" == "current" ]]; then
+    git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main"
+  else
+    echo "${GIT_BASE_BRANCH:-main}"
+  fi
+}
+
 _git_setup_plan_branch() {
   [[ "$GIT_ENABLED" != "true" ]] && return 0
 
   local slug="$1" run_dir="$2" plan_text="$3"
-  local branch="${GIT_PLAN_PREFIX}${slug}"
   local pr_target="${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}"
+  local base_branch; base_branch=$(_resolve_base_branch)
+
+  # In "current" mode: stay on current branch, no new branch creation
+  if [[ "${GIT_BASE_BRANCH:-}" == "current" ]]; then
+    local cur_branch; cur_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [[ -z "$cur_branch" || "$cur_branch" == "HEAD" ]]; then
+      log_warn "Git: Cannot determine HEAD — skipping"
+      return 0
+    fi
+    log_step "Git: Working on current branch ${W}${cur_branch}${N} (base=current mode)"
+    # Still commit backlog file if changed
+    if [[ -f "$BACKLOG_FILE" ]]; then
+      git -C "$ROOT_DIR" add "$BACKLOG_FILE"
+      if ! git -C "$ROOT_DIR" diff --cached --quiet 2>/dev/null; then
+        git -C "$ROOT_DIR" commit -m "plan: ${slug} — planning started" \
+          2>&1 | while IFS= read -r line; do log_info "$line"; done
+      fi
+    fi
+    # Push current branch
+    git -C "$ROOT_DIR" push -u origin "$cur_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done || true
+    # Create Draft PR to pr_target if different from current branch
+    if [[ "$cur_branch" != "$pr_target" ]] && command -v gh &>/dev/null; then
+      local pr_title="[Plan] ${slug}: ${plan_text}"
+      local pr_body; pr_body=$(cat "$run_dir/spec.md" 2>/dev/null || echo "$plan_text")
+      local draft_flag="--draft"; [[ "$GIT_PR_DRAFT" == "false" ]] && draft_flag=""
+      local pr_url
+      if pr_url=$(gh pr create \
+        --base "$pr_target" \
+        --head "$cur_branch" \
+        --title "$pr_title" \
+        --body "$pr_body" \
+        $draft_flag 2>/dev/null); then
+        log_ok "Draft PR created: ${W}${pr_url}${N}"
+        echo "$pr_url" > "$run_dir/pr-url.txt"
+      else
+        log_warn "gh pr create failed — create PR manually (${cur_branch} → ${pr_target})"
+      fi
+    fi
+    return 0
+  fi
+
+  local branch="${GIT_PLAN_PREFIX}${slug}"
 
   log_step "Git: Creating planning branch"
 
@@ -2153,8 +2203,8 @@ _git_merge_to_base() {
 
   local feat_branch base_branch pr_target
   feat_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  base_branch="$GIT_BASE_BRANCH"
-  pr_target="${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}"
+  base_branch=$(_resolve_base_branch)
+  pr_target="${GIT_PR_TARGET_BRANCH:-$base_branch}"
 
   if [[ -z "$feat_branch" || "$feat_branch" == "$base_branch" || "$feat_branch" == "HEAD" ]]; then
     log_warn "Git: Cannot identify feature branch to merge (current: ${feat_branch:-unknown})"
@@ -2857,7 +2907,7 @@ cmd_config() {
       echo -e "  Max retries:       ${W}$MAX_ITERATIONS${N}"
       echo -e "  Git integration:   ${W}$GIT_ENABLED${N}"
       [[ "$GIT_ENABLED" == "true" ]] && {
-        echo -e "  Base working branch: ${W}$GIT_BASE_BRANCH${N}"
+        echo -e "  Base working branch: ${W}$GIT_BASE_BRANCH${N}$( [[ "$GIT_BASE_BRANCH" == "current" ]] && echo "  ${D}(= current git branch at runtime)${N}" )"
         echo -e "  PR target branch:  ${W}${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}${N}"
         echo -e "  Auto push:         ${W}$GIT_AUTO_PUSH${N}"
         echo -e "  Auto PR:           ${W}$GIT_AUTO_PR${N}"
@@ -3201,6 +3251,39 @@ cmd_doctor() {
   fi
 }
 
+cmd_base() {
+  local target="${1:-}"
+
+  if [[ -z "$target" ]]; then
+    # No argument — set to current branch
+    target=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [[ -z "$target" || "$target" == "HEAD" ]]; then
+      log_err "Cannot determine current branch"
+      return 1
+    fi
+  fi
+
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    log_err "No .harn_config found. Run: ${W}harn init${N}"
+    return 1
+  fi
+
+  local prev="${GIT_BASE_BRANCH:-main}"
+  if grep -q "^GIT_BASE_BRANCH=" "$CONFIG_FILE"; then
+    sed -i '' "s|^GIT_BASE_BRANCH=.*|GIT_BASE_BRANCH=\"${target}\"|" "$CONFIG_FILE"
+  else
+    echo "GIT_BASE_BRANCH=\"${target}\"" >> "$CONFIG_FILE"
+  fi
+
+  if [[ "$target" == "current" ]]; then
+    local actual; actual=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
+    log_ok "Base branch → ${W}current${N}  ${D}(resolves to: ${actual})${N}"
+    log_info "harn will work on whichever branch is active at runtime"
+  else
+    log_ok "Base branch → ${W}${target}${N}  ${D}(was: ${prev})${N}"
+  fi
+}
+
 cmd_auth() {
   local sub="${1:-status}"
   case "$sub" in
@@ -3367,6 +3450,7 @@ case "${1:-help}" in
   next)      cmd_next "${2:-}" ;;
   stop)      cmd_stop ;;
   config)    cmd_config "${2:-show}" "${3:-}" "${4:-}" ;;
+  base)      cmd_base "${2:-}" ;;
   backlog)   cmd_backlog ;;
   status)    cmd_status ;;
   auth)      cmd_auth "${2:-status}" ;;
