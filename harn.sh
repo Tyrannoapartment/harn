@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.3.1"
+HARN_VERSION="1.3.2"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -1186,10 +1186,20 @@ _pick_role_model() {
 # Generate a single prompt using the AI CLI
 _ai_generate() {
   local ai_cmd="$1" prompt_text="$2" out_file="$3"
+  local err_file; err_file=$(mktemp)
+  local rc=0
   case "$ai_cmd" in
-    copilot) copilot --yolo -p "$prompt_text" > "$out_file" 2>/dev/null ;;
-    claude)  claude -p "$prompt_text" > "$out_file" 2>/dev/null ;;
+    copilot) copilot --yolo -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
+    claude)  claude -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
   esac
+  if [[ $rc -ne 0 ]]; then
+    local err_msg; err_msg=$(cat "$err_file" 2>/dev/null | head -5)
+    rm -f "$err_file"
+    [[ -n "$err_msg" ]] && log_warn "  ${D}${err_msg}${N}"
+    return $rc
+  fi
+  rm -f "$err_file"
+  return 0
 }
 
 # Generate custom prompt files based on per-agent instructions + Git guidelines
