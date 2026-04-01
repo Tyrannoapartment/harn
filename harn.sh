@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.3.0"
+HARN_VERSION="1.3.1"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -819,6 +819,96 @@ _i18n_load() {
     I18N_CONFIG_SET_DONE="설정 저장됨"
     I18N_CONFIG_SET_USAGE="사용법: harn config set <key> <value>"
     I18N_LANG_SELECT="사용할 언어를 선택하세요"
+    # usage()
+    I18N_USAGE_TITLE="사용법"
+    I18N_USAGE_CMD="harn <명령어>"
+    I18N_USAGE_SETUP="설정"
+    I18N_USAGE_BACKLOG="백로그"
+    I18N_USAGE_RUN="실행"
+    I18N_USAGE_STEPS="단계별 실행"
+    I18N_USAGE_MONITOR="모니터링"
+    I18N_USAGE_INIT="초기 설정 (첫 실행 또는 재설정)"
+    I18N_USAGE_CONFIG="현재 설정 보기"
+    I18N_USAGE_CONFIG_SET="특정 설정 변경"
+    I18N_USAGE_CONFIG_REGEN="HINT_* 값으로 커스텀 프롬프트 재생성"
+    I18N_USAGE_BACKLOG_CMD="백로그 항목 목록"
+    I18N_USAGE_ADD="새 백로그 항목 추가 (AI 보조)"
+    I18N_USAGE_DISCOVER="코드베이스 분석 후 작업 발굴"
+    I18N_USAGE_START="항목 선택 후 전체 루프 실행"
+    I18N_USAGE_AUTO="자동 감지: 재개 / 시작 / 발굴"
+    I18N_USAGE_ALL="대기 중인 항목 전부 순차 실행 (마지막에 회고)"
+    I18N_USAGE_PLAN="플래너 재실행"
+    I18N_USAGE_CONTRACT="스코프 협상"
+    I18N_USAGE_IMPLEMENT="제너레이터 실행"
+    I18N_USAGE_EVALUATE="이밸류에이터 실행"
+    I18N_USAGE_NEXT="다음 스프린트로 이동"
+    I18N_USAGE_STATUS="현재 실행 상태"
+    I18N_USAGE_TAIL="실시간 로그 출력"
+    I18N_USAGE_RUNS="전체 실행 목록"
+    I18N_USAGE_RESUME="이전 실행 재개"
+    I18N_USAGE_STOP="루프 중단"
+    I18N_USAGE_TIP="루프 실행 중에도 단계 사이에 추가 지시사항을 넣을 수 있어요."
+    # doctor
+    I18N_DOCTOR_VERSION="버전"
+    I18N_DOCTOR_BACKENDS="AI 백엔드"
+    I18N_DOCTOR_NOT_FOUND="설치되지 않음"
+    I18N_DOCTOR_INSTALL="설치"
+    I18N_DOCTOR_ACTIVE_BACKEND="활성 백엔드"
+    I18N_DOCTOR_NO_BACKEND="AI 백엔드 없음 — harn init 실행 필요"
+    I18N_DOCTOR_GIT_SECTION="Git"
+    I18N_DOCTOR_GH_AUTH_WARN="인증 안 됨 — gh auth login 실행 필요"
+    I18N_DOCTOR_GH_NOT_FOUND="설치되지 않음 — PR 기능 비활성화"
+    I18N_DOCTOR_PROJECT_REPO="프로젝트 저장소"
+    I18N_DOCTOR_CONFIG_SECTION="harn 설정"
+    I18N_DOCTOR_CONFIG_FOUND="설정 파일 있음"
+    I18N_DOCTOR_CONFIG_NOT_FOUND="설정 안 됨 (harn init 실행 필요)"
+    I18N_DOCTOR_GIT_INTEGRATION="Git 통합"
+    I18N_DOCTOR_BASE_BRANCH="기본 브랜치"
+    I18N_DOCTOR_PR_TARGET="PR 타겟 브랜치"
+    I18N_DOCTOR_SPRINT_COUNT="스프린트 수"
+    I18N_DOCTOR_AI_BACKEND="AI 백엔드"
+    I18N_DOCTOR_CUSTOM_PROMPTS="커스텀 프롬프트"
+    I18N_DOCTOR_MODELS="모델"
+    I18N_DOCTOR_ACTIVE_RUN="현재 실행"
+    I18N_DOCTOR_SPRINT="스프린트"
+    I18N_DOCTOR_NO_RUN="현재 실행 없음"
+    I18N_DOCTOR_DEPS="기타 의존성"
+    I18N_DOCTOR_OPTIONAL="선택사항"
+    I18N_DOCTOR_ALL_OK="모든 핵심 검사 통과."
+    I18N_DOCTOR_FAIL_MSG="하나 이상의 핵심 검사 실패. harn init 실행 필요"
+    # no-config warning
+    I18N_NO_CONFIG_WARN=".harn_config 파일이 없습니다."
+    I18N_NO_CONFIG_SETUP="초기 설정을 시작합니다..."
+    # cmd_init
+    I18N_INIT_TITLE="harn 초기 설정"
+    I18N_INIT_OVERWRITE="설정 파일이 이미 있습니다. 덮어쓸까요? [y/N]: "
+    I18N_INIT_CANCELLED="초기화 취소됨"
+    I18N_INIT_AI_MODELS="AI 모델 설정"
+    I18N_INIT_AI_MODELS_HINT="↑↓ 방향키로 이동, Enter로 선택, Ctrl+Q로 취소"
+    I18N_INIT_SPRINT_STRUCTURE="스프린트 구조"
+    I18N_INIT_SPRINT_COUNT_PROMPT="스프린트 수 [2]: "
+    I18N_INIT_SPRINT_ROLES_HINT="각 스프린트의 목표/역할을 입력하세요 (Enter = 기본값 사용)"
+    I18N_INIT_SPRINT_ROLE_PROMPT="스프린트 %s 역할: "
+    I18N_INIT_SPRINT_INVALID="잘못된 스프린트 수 '%s' — 기본값 2로 설정"
+    I18N_INIT_GIT_SECTION="Git 통합"
+    I18N_INIT_GIT_ENABLE_PROMPT="Git 통합을 활성화할까요? [y/N]: "
+    I18N_INIT_GIT_BASE_PROMPT="기본 작업 브랜치 (또는 'current'로 현재 브랜치 사용) [main]: "
+    I18N_INIT_GIT_TARGET_PROMPT="PR 대상 브랜치 (PR이 머지될 브랜치) [%s]: "
+    I18N_INIT_GIT_AUTOPUSH_PROMPT="자동 push? [y/N]: "
+    I18N_INIT_GIT_AUTOPR_PROMPT="자동 PR 생성? [y/N]: "
+    I18N_INIT_GIT_DRAFT_PROMPT="Draft PR로 생성? [Y/n]: "
+    I18N_INIT_GIT_GUIDE_TITLE="Git 워크플로우 가이드라인"
+    I18N_INIT_GIT_GUIDE_HINT="브랜치 전략, 커밋 컨벤션, PR 규칙 등을 입력하세요.\n  에이전트 프롬프트에 반영됩니다. (Enter = 건너뜀)"
+    I18N_INIT_HINTS_TITLE="에이전트별 특별 지시사항"
+    I18N_INIT_HINTS_HINT="프로젝트 아키텍처, 기술 스택, 코딩 컨벤션 등을 입력하세요.\n  AI CLI가 기본 프롬프트에 자연스럽게 통합합니다. (Enter = 건너뜀)"
+    I18N_INIT_HINT_PLANNER="Planner   — 스펙/스프린트 계획 지시사항: "
+    I18N_INIT_HINT_GENERATOR="Generator — 구현 지시사항: "
+    I18N_INIT_HINT_EVALUATOR="Evaluator — QA/평가 지시사항: "
+    I18N_INIT_CONFIG_SAVED="설정 파일 생성됨"
+    I18N_INIT_GEN_PROMPTS="AI CLI로 커스텀 프롬프트 생성 중"
+    I18N_INIT_COMPLETE="초기화 완료!"
+    I18N_INIT_HINT_BACKLOG="  harn backlog  — 백로그 항목 보기"
+    I18N_INIT_HINT_START="  harn start    — 루프 시작"
   else
     I18N_LANG_NAME="English"
     I18N_INIT_LANG_PROMPT="Language"
@@ -834,6 +924,96 @@ _i18n_load() {
     I18N_CONFIG_SET_DONE="Config saved"
     I18N_CONFIG_SET_USAGE="Usage: harn config set <key> <value>"
     I18N_LANG_SELECT="Select language"
+    # usage()
+    I18N_USAGE_TITLE="Usage"
+    I18N_USAGE_CMD="harn <command>"
+    I18N_USAGE_SETUP="Setup"
+    I18N_USAGE_BACKLOG="Backlog"
+    I18N_USAGE_RUN="Run"
+    I18N_USAGE_STEPS="Step by step"
+    I18N_USAGE_MONITOR="Monitoring"
+    I18N_USAGE_INIT="Initial setup (first run or reconfigure)"
+    I18N_USAGE_CONFIG="Show current configuration"
+    I18N_USAGE_CONFIG_SET="Update a specific setting"
+    I18N_USAGE_CONFIG_REGEN="Regenerate custom prompts from HINT_* values"
+    I18N_USAGE_BACKLOG_CMD="List pending items"
+    I18N_USAGE_ADD="Add new backlog item (AI-assisted)"
+    I18N_USAGE_DISCOVER="Analyze codebase and discover new items"
+    I18N_USAGE_START="Select an item and run the full loop"
+    I18N_USAGE_AUTO="Auto-detect: resume / start / discover"
+    I18N_USAGE_ALL="Run all pending items sequentially (retro at end)"
+    I18N_USAGE_PLAN="Re-run planner"
+    I18N_USAGE_CONTRACT="Scope negotiation"
+    I18N_USAGE_IMPLEMENT="Run generator"
+    I18N_USAGE_EVALUATE="Run evaluator"
+    I18N_USAGE_NEXT="Advance to next sprint"
+    I18N_USAGE_STATUS="Current run status"
+    I18N_USAGE_TAIL="Live log output"
+    I18N_USAGE_RUNS="List all runs"
+    I18N_USAGE_RESUME="Resume a previous run"
+    I18N_USAGE_STOP="Stop the loop"
+    I18N_USAGE_TIP="You can inject extra instructions between steps during a loop run."
+    # doctor
+    I18N_DOCTOR_VERSION="Version"
+    I18N_DOCTOR_BACKENDS="AI Backends"
+    I18N_DOCTOR_NOT_FOUND="not found"
+    I18N_DOCTOR_INSTALL="Install"
+    I18N_DOCTOR_ACTIVE_BACKEND="Active backend"
+    I18N_DOCTOR_NO_BACKEND="No AI backend available — run: harn init"
+    I18N_DOCTOR_GIT_SECTION="Git"
+    I18N_DOCTOR_GH_AUTH_WARN="not authenticated — run: gh auth login"
+    I18N_DOCTOR_GH_NOT_FOUND="not found — PR features disabled"
+    I18N_DOCTOR_PROJECT_REPO="Project repo"
+    I18N_DOCTOR_CONFIG_SECTION="harn Config"
+    I18N_DOCTOR_CONFIG_FOUND="found"
+    I18N_DOCTOR_CONFIG_NOT_FOUND="not configured  (run harn init to set up)"
+    I18N_DOCTOR_GIT_INTEGRATION="Git integration"
+    I18N_DOCTOR_BASE_BRANCH="Base branch"
+    I18N_DOCTOR_PR_TARGET="PR target branch"
+    I18N_DOCTOR_SPRINT_COUNT="Sprint count"
+    I18N_DOCTOR_AI_BACKEND="AI backend"
+    I18N_DOCTOR_CUSTOM_PROMPTS="Custom prompts"
+    I18N_DOCTOR_MODELS="Models"
+    I18N_DOCTOR_ACTIVE_RUN="Active Run"
+    I18N_DOCTOR_SPRINT="Sprint"
+    I18N_DOCTOR_NO_RUN="No active run"
+    I18N_DOCTOR_DEPS="Other Dependencies"
+    I18N_DOCTOR_OPTIONAL="optional"
+    I18N_DOCTOR_ALL_OK="All critical checks passed."
+    I18N_DOCTOR_FAIL_MSG="One or more critical checks failed. Run: harn init"
+    # no-config warning
+    I18N_NO_CONFIG_WARN="No .harn_config found in this directory."
+    I18N_NO_CONFIG_SETUP="Starting initial setup..."
+    # cmd_init
+    I18N_INIT_TITLE="harn initial setup"
+    I18N_INIT_OVERWRITE="Config file already exists. Overwrite? [y/N]: "
+    I18N_INIT_CANCELLED="Initialization cancelled"
+    I18N_INIT_AI_MODELS="AI model settings"
+    I18N_INIT_AI_MODELS_HINT="Use ↑↓ arrows to navigate, Enter to select, Ctrl+Q to cancel init"
+    I18N_INIT_SPRINT_STRUCTURE="Sprint structure"
+    I18N_INIT_SPRINT_COUNT_PROMPT="Number of sprints [2]: "
+    I18N_INIT_SPRINT_ROLES_HINT="Describe the goal/role of each sprint (Enter = use default label)"
+    I18N_INIT_SPRINT_ROLE_PROMPT="  Sprint %s role: "
+    I18N_INIT_SPRINT_INVALID="Invalid sprint count '%s' — defaulting to 2"
+    I18N_INIT_GIT_SECTION="Git integration"
+    I18N_INIT_GIT_ENABLE_PROMPT="Enable Git integration? [y/N]: "
+    I18N_INIT_GIT_BASE_PROMPT="Base working branch (branch off from, or 'current' to always use active branch) [main]: "
+    I18N_INIT_GIT_TARGET_PROMPT="PR target branch (where PRs are merged into) [%s]: "
+    I18N_INIT_GIT_AUTOPUSH_PROMPT="Auto push? [y/N]: "
+    I18N_INIT_GIT_AUTOPR_PROMPT="Auto PR creation? [y/N]: "
+    I18N_INIT_GIT_DRAFT_PROMPT="Create PR as Draft? [Y/n]: "
+    I18N_INIT_GIT_GUIDE_TITLE="Git workflow guidelines"
+    I18N_INIT_GIT_GUIDE_HINT="Enter branching strategy, commit conventions, PR rules, etc.\n  These guidelines will be reflected in all agent prompts. (Enter = skip)"
+    I18N_INIT_HINTS_TITLE="Per-agent special instructions"
+    I18N_INIT_HINTS_HINT="Enter project architecture, tech stack, coding conventions, etc.\n  The AI CLI will naturally integrate these into the base prompts. (Enter = skip)"
+    I18N_INIT_HINT_PLANNER="Planner   — spec/sprint planning instructions: "
+    I18N_INIT_HINT_GENERATOR="Generator — implementation instructions: "
+    I18N_INIT_HINT_EVALUATOR="Evaluator — QA/evaluation instructions: "
+    I18N_INIT_CONFIG_SAVED="Config file created"
+    I18N_INIT_GEN_PROMPTS="Generating custom prompts with AI CLI"
+    I18N_INIT_COMPLETE="Initialization complete!"
+    I18N_INIT_HINT_BACKLOG="  harn backlog  — view backlog items"
+    I18N_INIT_HINT_START="  harn start    — start the loop"
   fi
 }
 
@@ -1089,20 +1269,7 @@ ${extra}"
 # ── Initialization wizard ──────────────────────────────────────────────────────
 
 cmd_init() {
-  echo -e "\n${W}══════════════════════════════════════════${N}"
-  echo -e "${W}  harn initial setup${N}"
-  echo -e "${W}══════════════════════════════════════════${N}"
-  echo -e "Project root: ${W}$ROOT_DIR${N}"
-  echo -e "Config file:  ${W}$CONFIG_FILE${N}\n"
-
-  if [[ -f "$CONFIG_FILE" ]]; then
-    printf "${Y}Config file already exists. Overwrite? [y/N]: ${N}"
-    local ow; ow=$(_input_readline)
-    echo ""
-    [[ "$ow" == "y" || "$ow" == "Y" ]] || { log_info "Initialization cancelled"; return 0; }
-  fi
-
-  # ── Language selection ─────────────────────────────────────────────────────────
+  # ── Language selection (first!) ────────────────────────────────────────────
   echo -e "\n${W}Language / 언어${N}"
   local _lang_choice
   _lang_choice=$(python3 - "" \
@@ -1162,7 +1329,7 @@ finally:
 sys.stdout.write("\n" * len(labels))
 print(values[selected])
 PYEOF
-  ) || { log_info "Init cancelled"; return 0; }
+  ) || { echo ""; return 0; }
   local selected_lang="${_lang_choice}"
   HARN_LANG="$selected_lang"
   _i18n_load
@@ -1170,6 +1337,20 @@ PYEOF
   local _ldir="$SCRIPT_DIR/prompts/$HARN_LANG"
   [[ -d "$_ldir" ]] && PROMPTS_DIR="$_ldir" || PROMPTS_DIR="$SCRIPT_DIR/prompts/en"
   echo ""
+
+  # ── Header (now in selected language) ─────────────────────────────────────
+  echo -e "${W}══════════════════════════════════════════${N}"
+  echo -e "${W}  ${I18N_INIT_TITLE}${N}"
+  echo -e "${W}══════════════════════════════════════════${N}"
+  echo -e "Project root: ${W}$ROOT_DIR${N}"
+  echo -e "Config file:  ${W}$CONFIG_FILE${N}\n"
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    printf "${Y}${I18N_INIT_OVERWRITE}${N}"
+    local ow; ow=$(_input_readline)
+    echo ""
+    [[ "$ow" == "y" || "$ow" == "Y" ]] || { log_info "$I18N_INIT_CANCELLED"; return 0; }
+  fi
 
   # ── Project basic settings ───────────────────────────────────────────────────
   local bf_default="$I18N_INIT_BACKLOG_DEFAULT"
@@ -1186,58 +1367,79 @@ PYEOF
   _select_ai_backend
 
   # ── AI model settings (per role) ──────────────────────────────────────────────
-  echo -e "\n${W}AI model settings${N} — select AI tool and model for each role"
-  echo -e "  ${D}Use ↑↓ arrows to navigate, Enter to select, Ctrl+Q to cancel init${N}\n"
+  echo -e "\n${W}${I18N_INIT_AI_MODELS}${N} — ${I18N_INIT_AI_MODELS_HINT}"
+  echo -e "  ${D}${I18N_INIT_AI_MODELS_HINT}${N}\n"
 
   local mp mp_backend _tmp_p
-  echo -e "  ${W}Planner${N}  ${D}— reads backlog item, writes product spec & sprint breakdown${N}"
+  if [[ "$HARN_LANG" == "ko" ]]; then
+    echo -e "  ${W}Planner${N}  ${D}— 백로그 항목을 읽고 스펙과 스프린트 계획을 작성하는 역할${N}"
+  else
+    echo -e "  ${W}Planner${N}  ${D}— reads backlog item, writes product spec & sprint breakdown${N}"
+  fi
   _tmp_p=$(_pick_role_model "Planner" "${AI_BACKEND:-copilot}" "claude-haiku-4.5") \
-    || { echo ""; log_info "Init cancelled"; return 0; }
+    || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
   read -r mp_backend mp <<< "$_tmp_p"
 
   local mgc mgc_backend _tmp_gc
-  echo -e "\n  ${W}Generator (contract)${N}  ${D}— proposes sprint scope; negotiates with Evaluator before coding starts${N}"
+  if [[ "$HARN_LANG" == "ko" ]]; then
+    echo -e "\n  ${W}Generator (contract)${N}  ${D}— 스프린트 스코프를 제안하고 코딩 전 Evaluator와 협상하는 역할${N}"
+  else
+    echo -e "\n  ${W}Generator (contract)${N}  ${D}— proposes sprint scope; negotiates with Evaluator before coding starts${N}"
+  fi
   _tmp_gc=$(_pick_role_model "Generator (contract)" "${AI_BACKEND:-copilot}" "claude-sonnet-4.6") \
-    || { echo ""; log_info "Init cancelled"; return 0; }
+    || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
   read -r mgc_backend mgc <<< "$_tmp_gc"
 
   local mgi mgi_backend _tmp_gi
-  echo -e "\n  ${W}Generator (impl)${N}  ${D}— writes the actual code; most important role, use the strongest model${N}"
+  if [[ "$HARN_LANG" == "ko" ]]; then
+    echo -e "\n  ${W}Generator (impl)${N}  ${D}— 실제 코드를 작성하는 역할; 가장 중요한 역할이므로 최고 성능 모델 추천${N}"
+  else
+    echo -e "\n  ${W}Generator (impl)${N}  ${D}— writes the actual code; most important role, use the strongest model${N}"
+  fi
   _tmp_gi=$(_pick_role_model "Generator (impl)" "${AI_BACKEND:-copilot}" "claude-opus-4.6") \
-    || { echo ""; log_info "Init cancelled"; return 0; }
+    || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
   read -r mgi_backend mgi <<< "$_tmp_gi"
 
   local mec mec_backend _tmp_ec
-  echo -e "\n  ${W}Evaluator (contract)${N}  ${D}— reviews sprint scope proposal, approves or requests revision${N}"
+  if [[ "$HARN_LANG" == "ko" ]]; then
+    echo -e "\n  ${W}Evaluator (contract)${N}  ${D}— 스프린트 스코프 제안을 검토하고 승인 또는 수정을 요청하는 역할${N}"
+  else
+    echo -e "\n  ${W}Evaluator (contract)${N}  ${D}— reviews sprint scope proposal, approves or requests revision${N}"
+  fi
   _tmp_ec=$(_pick_role_model "Evaluator (contract)" "${AI_BACKEND:-copilot}" "claude-haiku-4.5") \
-    || { echo ""; log_info "Init cancelled"; return 0; }
+    || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
   read -r mec_backend mec <<< "$_tmp_ec"
 
   local meq meq_backend _tmp_eq
-  echo -e "\n  ${W}Evaluator (QA)${N}  ${D}— reviews implementation, runs tests, issues PASS or FAIL verdict${N}"
+  if [[ "$HARN_LANG" == "ko" ]]; then
+    echo -e "\n  ${W}Evaluator (QA)${N}  ${D}— 구현을 검토하고 테스트를 실행하여 PASS 또는 FAIL 판정을 내리는 역할${N}"
+  else
+    echo -e "\n  ${W}Evaluator (QA)${N}  ${D}— reviews implementation, runs tests, issues PASS or FAIL verdict${N}"
+  fi
   _tmp_eq=$(_pick_role_model "Evaluator (QA)" "${AI_BACKEND:-copilot}" "claude-sonnet-4.5") \
-    || { echo ""; log_info "Init cancelled"; return 0; }
+    || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
   read -r meq_backend meq <<< "$_tmp_eq"
 
   # ── Sprint structure ──────────────────────────────────────────────────────────
-  echo -e "\n${W}Sprint structure${N}"
-  printf "Number of sprints [2]: "
+  echo -e "\n${W}${I18N_INIT_SPRINT_STRUCTURE}${N}"
+  printf "%s" "$I18N_INIT_SPRINT_COUNT_PROMPT"
   local sc_input; sc_input=$(_input_readline); echo ""
   local sc="${sc_input:-2}"
 
   # Validate: must be a positive integer
   if ! [[ "$sc" =~ ^[1-9][0-9]*$ ]]; then
-    log_warn "Invalid sprint count '$sc' — defaulting to 2"
+    # shellcheck disable=SC2059
+    log_warn "$(printf "$I18N_INIT_SPRINT_INVALID" "$sc")"
     sc=2
   fi
 
   # If not default 2, ask what each sprint should do
   local sprint_roles_arr=()
   if [[ "$sc" -ne 2 ]]; then
-    echo -e "  ${D}Describe the goal/role of each sprint (Enter = use default label)${N}"
+    echo -e "  ${D}${I18N_INIT_SPRINT_ROLES_HINT}${N}"
     for ((i=1; i<=sc; i++)); do
       local padded; padded=$(printf "%03d" "$i")
-      printf "  Sprint %s role: " "$padded"
+      printf "$I18N_INIT_SPRINT_ROLE_PROMPT" "$padded"
       local sr; sr=$(_input_readline); echo ""
       sprint_roles_arr+=("Sprint ${padded}: ${sr:-Sprint ${padded} implementation}")
     done
@@ -1253,53 +1455,51 @@ PYEOF
   sprint_roles_str="${sprint_roles_str%|}"
 
   # ── Git integration ─────────────────────────────────────────────────────────────
-  echo -e "\n${W}Git integration${N}"
-  printf "Enable Git integration? [y/N]: "
+  echo -e "\n${W}${I18N_INIT_GIT_SECTION}${N}"
+  printf "%s" "$I18N_INIT_GIT_ENABLE_PROMPT"
   local git_yn; git_yn=$(_input_readline); echo ""
   local git_en="false"
   local git_branch="main" git_pr_target="main" git_auto_push="false" git_auto_pr="false" git_pr_draft="true" git_guide=""
 
   if [[ "$git_yn" == "y" || "$git_yn" == "Y" ]]; then
     git_en="true"
-    printf "Base working branch (branch off from, or 'current' to always use active branch) [main]: "
+    printf "%s" "$I18N_INIT_GIT_BASE_PROMPT"
     local gb; gb=$(_input_readline); echo ""; git_branch="${gb:-main}"
 
-    printf "PR target branch (where PRs are merged into) [%s]: " "$git_branch"
+    printf "$I18N_INIT_GIT_TARGET_PROMPT" "$git_branch"
     local gpt; gpt=$(_input_readline); echo ""; git_pr_target="${gpt:-$git_branch}"
 
-    printf "Auto push? [y/N]: "
+    printf "%s" "$I18N_INIT_GIT_AUTOPUSH_PROMPT"
     local gp; gp=$(_input_readline); echo ""
     [[ "$gp" == "y" || "$gp" == "Y" ]] && git_auto_push="true"
 
-    printf "Auto PR creation? [y/N]: "
+    printf "%s" "$I18N_INIT_GIT_AUTOPR_PROMPT"
     local gpr; gpr=$(_input_readline); echo ""
     [[ "$gpr" == "y" || "$gpr" == "Y" ]] && git_auto_pr="true"
 
     if [[ "$git_auto_pr" == "true" ]]; then
-      printf "Create PR as Draft? [Y/n]: "
+      printf "%s" "$I18N_INIT_GIT_DRAFT_PROMPT"
       local gprd; gprd=$(_input_readline); echo ""
       [[ "$gprd" == "n" || "$gprd" == "N" ]] && git_pr_draft="false"
     fi
 
-    echo -e "\n${B}Git workflow guidelines${N}"
-    echo -e "  Enter branching strategy, commit conventions, PR rules, etc."
-    echo -e "  These guidelines will be reflected in all agent prompts. (Enter = skip)"
+    echo -e "\n${B}${I18N_INIT_GIT_GUIDE_TITLE}${N}"
+    echo -e "  ${I18N_INIT_GIT_GUIDE_HINT}"
     printf "> "
     git_guide=$(_input_readline); echo ""
   fi
 
   # ── Per-agent special instructions ──────────────────────────────────────────
-  echo -e "\n${W}Per-agent special instructions${N}"
-  echo -e "  Enter project architecture, tech stack, coding conventions, etc."
-  echo -e "  The AI CLI will naturally integrate these into the base prompts. (Enter = skip)\n"
+  echo -e "\n${W}${I18N_INIT_HINTS_TITLE}${N}"
+  echo -e "  ${I18N_INIT_HINTS_HINT}\n"
 
-  printf "Planner   — spec/sprint planning instructions: "
+  printf "%s" "$I18N_INIT_HINT_PLANNER"
   local hint_planner; hint_planner=$(_input_readline); echo ""
 
-  printf "Generator — implementation instructions: "
+  printf "%s" "$I18N_INIT_HINT_GENERATOR"
   local hint_generator; hint_generator=$(_input_readline); echo ""
 
-  printf "Evaluator — QA/evaluation instructions: "
+  printf "%s" "$I18N_INIT_HINT_EVALUATOR"
   local hint_evaluator; hint_evaluator=$(_input_readline); echo ""
 
   # ── Write config file ───────────────────────────────────────────────────────
@@ -1351,14 +1551,14 @@ HINT_EVALUATOR="${hint_evaluator}"
 CUSTOM_PROMPTS_DIR="${cpd}"
 CFGEOF
 
-  log_ok "Config file created: ${W}$CONFIG_FILE${N}"
+  log_ok "${I18N_INIT_CONFIG_SAVED}: ${W}$CONFIG_FILE${N}"
 
   # ── Custom prompt generation ──────────────────────────────────────────────────
   if [[ -n "$hint_planner" || -n "$hint_generator" || -n "$hint_evaluator" || -n "$git_guide" ]]; then
     echo ""
     local ai_cmd; ai_cmd=$(_detect_ai_cli)
     if [[ -n "$ai_cmd" ]]; then
-      log_info "Generating custom prompts with AI CLI(${W}${ai_cmd}${N})..."
+      log_info "${I18N_INIT_GEN_PROMPTS}(${W}${ai_cmd}${N})..."
     else
       log_warn "AI CLI not found — adding instructions directly to base prompts."
     fi
@@ -1372,9 +1572,9 @@ CFGEOF
   load_config
 
   echo ""
-  log_ok "Initialization complete!"
-  echo -e "  ${W}harn backlog${N}  — view backlog items"
-  echo -e "  ${W}harn start${N}    — start the loop"
+  log_ok "$I18N_INIT_COMPLETE"
+  echo -e "$I18N_INIT_HINT_BACKLOG"
+  echo -e "$I18N_INIT_HINT_START"
   echo ""
 }
 
@@ -3518,39 +3718,39 @@ usage() {
   cat <<EOF
 ${D}  $(pwd)${N}
 
-  ${W}Usage${N}  harn <command>
+  ${W}${I18N_USAGE_TITLE}${N}  ${I18N_USAGE_CMD}
 
-  ${C}Setup${N}
-    init                  Initial setup (first run or reconfigure)
-    config                Show current configuration
-    config set KEY VALUE  Update a specific setting
-    config regen          Regenerate custom prompts from HINT_* values
+  ${C}${I18N_USAGE_SETUP}${N}
+    init                  ${I18N_USAGE_INIT}
+    config                ${I18N_USAGE_CONFIG}
+    config set KEY VALUE  ${I18N_USAGE_CONFIG_SET}
+    config regen          ${I18N_USAGE_CONFIG_REGEN}
 
-  ${C}Backlog${N}
-    backlog               List pending items
-    add                   Add new backlog item (AI-assisted)
-    discover              Analyze codebase and discover new items
+  ${C}${I18N_USAGE_BACKLOG}${N}
+    backlog               ${I18N_USAGE_BACKLOG_CMD}
+    add                   ${I18N_USAGE_ADD}
+    discover              ${I18N_USAGE_DISCOVER}
 
-  ${C}Run${N}
-    start                 Select an item and run the full loop
-    auto                  Auto-detect: resume / start / discover
-    all                   Run all pending items sequentially (retro at end)
+  ${C}${I18N_USAGE_RUN}${N}
+    start                 ${I18N_USAGE_START}
+    auto                  ${I18N_USAGE_AUTO}
+    all                   ${I18N_USAGE_ALL}
 
-  ${C}Step by step${N}
-    plan                  Re-run planner
-    contract              Scope negotiation
-    implement             Run generator
-    evaluate              Run evaluator
-    next                  Advance to next sprint
+  ${C}${I18N_USAGE_STEPS}${N}
+    plan                  ${I18N_USAGE_PLAN}
+    contract              ${I18N_USAGE_CONTRACT}
+    implement             ${I18N_USAGE_IMPLEMENT}
+    evaluate              ${I18N_USAGE_EVALUATE}
+    next                  ${I18N_USAGE_NEXT}
 
-  ${C}Monitoring${N}
-    status                Current run status
-    tail                  Live log output
-    runs                  List all runs
-    resume <id>           Resume a previous run
-    stop                  Stop the loop
+  ${C}${I18N_USAGE_MONITOR}${N}
+    status                ${I18N_USAGE_STATUS}
+    tail                  ${I18N_USAGE_TAIL}
+    runs                  ${I18N_USAGE_RUNS}
+    resume <id>           ${I18N_USAGE_RESUME}
+    stop                  ${I18N_USAGE_STOP}
 
-  ${D}Tip: You can inject extra instructions between steps during a loop run.${N}
+  ${D}Tip: ${I18N_USAGE_TIP}${N}
   ${D}    HARN_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start${N}
 
 EOF
@@ -3618,8 +3818,8 @@ case "$_cmd" in
   *)
     if [[ ! -f "$CONFIG_FILE" ]]; then
       _print_banner
-      echo -e "  ${Y}⚠${N}  No ${W}.harn_config${N} found in this directory."
-      echo -e "     Starting initial setup...\n"
+      echo -e "  ${Y}⚠${N}  ${I18N_NO_CONFIG_WARN}"
+      echo -e "     ${I18N_NO_CONFIG_SETUP}\n"
       cmd_init
     else
       load_config
@@ -3629,17 +3829,17 @@ esac
 
 cmd_doctor() {
   echo -e "\n${W}╔══════════════════════════════════════╗${N}"
-  echo -e "${W}║            harn doctor               ║${N}"
+  printf "${W}║  %-36s║${N}\n" "  $I18N_DOCTOR_TITLE"
   echo -e "${W}╚══════════════════════════════════════╝${N}\n"
 
   # ── Version ─────────────────────────────────────────────────────────────────
-  echo -e "${W}▸ Version${N}"
+  echo -e "${W}▸ ${I18N_DOCTOR_VERSION}${N}"
   echo -e "  harn:         ${C}$HARN_VERSION${N}"
   echo -e "  bash:         ${C}${BASH_VERSION:-unknown}${N}"
   echo ""
 
   # ── AI CLIs ─────────────────────────────────────────────────────────────────
-  echo -e "${W}▸ AI Backends${N}"
+  echo -e "${W}▸ ${I18N_DOCTOR_BACKENDS}${N}"
   local backend_ok=0
 
   if command -v copilot &>/dev/null; then
@@ -3647,8 +3847,8 @@ cmd_doctor() {
     echo -e "  ${G}✓${N} copilot:      ${C}${cp_ver}${N}"
     backend_ok=1
   else
-    echo -e "  ${R}✗${N} copilot:      not found"
-    echo -e "    Install: ${W}gh extension install github/gh-copilot${N}"
+    echo -e "  ${R}✗${N} copilot:      ${I18N_DOCTOR_NOT_FOUND}"
+    echo -e "    ${I18N_DOCTOR_INSTALL}: ${W}gh extension install github/gh-copilot${N}"
   fi
 
   if command -v claude &>/dev/null; then
@@ -3656,24 +3856,24 @@ cmd_doctor() {
     echo -e "  ${G}✓${N} claude:       ${C}${cl_ver}${N}"
     backend_ok=1
   else
-    echo -e "  ${R}✗${N} claude:       not found"
-    echo -e "    Install: ${W}npm install -g @anthropic-ai/claude-code${N}"
+    echo -e "  ${R}✗${N} claude:       ${I18N_DOCTOR_NOT_FOUND}"
+    echo -e "    ${I18N_DOCTOR_INSTALL}: ${W}npm install -g @anthropic-ai/claude-code${N}"
   fi
 
   if [[ -n "${AI_BACKEND:-}" ]]; then
-    echo -e "  Active backend: ${W}${AI_BACKEND}${N}"
+    echo -e "  ${I18N_DOCTOR_ACTIVE_BACKEND}: ${W}${AI_BACKEND}${N}"
   elif [[ $backend_ok -eq 0 ]]; then
-    echo -e "  ${R}⚠ No AI backend available — run: harn init${N}"
+    echo -e "  ${R}⚠ ${I18N_DOCTOR_NO_BACKEND}${N}"
   fi
   echo ""
 
   # ── Git ─────────────────────────────────────────────────────────────────────
-  echo -e "${W}▸ Git${N}"
+  echo -e "${W}▸ ${I18N_DOCTOR_GIT_SECTION}${N}"
   if command -v git &>/dev/null; then
     local git_ver; git_ver=$(git --version 2>/dev/null | head -1)
     echo -e "  ${G}✓${N} git:          ${C}${git_ver}${N}"
   else
-    echo -e "  ${R}✗${N} git:          not found"
+    echo -e "  ${R}✗${N} git:          ${I18N_DOCTOR_NOT_FOUND}"
   fi
 
   if command -v gh &>/dev/null; then
@@ -3683,42 +3883,42 @@ cmd_doctor() {
     if [[ -n "$gh_auth" ]]; then
       echo -e "  ${G}✓${N} gh auth:      ${C}${gh_auth}${N}"
     else
-      echo -e "  ${Y}?${N} gh auth:      not authenticated — run: ${W}gh auth login${N}"
+      echo -e "  ${Y}?${N} gh auth:      ${I18N_DOCTOR_GH_AUTH_WARN}"
     fi
   else
-    echo -e "  ${R}✗${N} gh:           not found — PR features disabled"
-    echo -e "    Install: ${W}brew install gh${N}"
+    echo -e "  ${R}✗${N} gh:           ${I18N_DOCTOR_GH_NOT_FOUND}"
+    echo -e "    ${I18N_DOCTOR_INSTALL}: ${W}brew install gh${N}"
   fi
 
   if [[ -n "${ROOT_DIR:-}" ]] && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
     local branch; branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)
     local remote; remote=$(git -C "$ROOT_DIR" remote -v 2>/dev/null | head -1 | awk '{print $2}')
-    echo -e "  Project repo: ${C}${branch}${N} @ ${remote:-none}"
+    echo -e "  ${I18N_DOCTOR_PROJECT_REPO}: ${C}${branch}${N} @ ${remote:-none}"
   fi
   echo ""
 
   # ── Harness config ───────────────────────────────────────────────────────────
-  echo -e "${W}▸ harn Config${N}"
+  echo -e "${W}▸ ${I18N_DOCTOR_CONFIG_SECTION}${N}"
   if [[ -f "$CONFIG_FILE" ]]; then
-    echo -e "  ${G}✓${N} .harn_config:     found  (${W}$CONFIG_FILE${N})"
-    echo -e "  Git integration:  ${W}${GIT_ENABLED:-false}${N}"
+    echo -e "  ${G}✓${N} .harn_config:     ${I18N_DOCTOR_CONFIG_FOUND}  (${W}$CONFIG_FILE${N})"
+    echo -e "  ${I18N_DOCTOR_GIT_INTEGRATION}:  ${W}${GIT_ENABLED:-false}${N}"
     [[ "$GIT_ENABLED" == "true" ]] && {
-      echo -e "  Base branch:      ${W}${GIT_BASE_BRANCH:-not set}${N}"
-      echo -e "  PR target branch: ${W}${GIT_PR_TARGET_BRANCH:-not set}${N}"
+      echo -e "  ${I18N_DOCTOR_BASE_BRANCH}:      ${W}${GIT_BASE_BRANCH:-not set}${N}"
+      echo -e "  ${I18N_DOCTOR_PR_TARGET}: ${W}${GIT_PR_TARGET_BRANCH:-not set}${N}"
     }
-    echo -e "  Sprint count:     ${W}${SPRINT_COUNT:-2}${N}"
-    echo -e "  AI backend:       ${W}${AI_BACKEND:-auto}${N}"
+    echo -e "  ${I18N_DOCTOR_SPRINT_COUNT}:     ${W}${SPRINT_COUNT:-2}${N}"
+    echo -e "  ${I18N_DOCTOR_AI_BACKEND}:       ${W}${AI_BACKEND:-auto}${N}"
   else
-    echo -e "  ${D}○${N} .harn_config:     not configured  (run ${W}harn init${N} to set up)"
+    echo -e "  ${D}○${N} .harn_config:     ${I18N_DOCTOR_CONFIG_NOT_FOUND}"
   fi
 
   if [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]]; then
-    echo -e "  Custom prompts:   ${W}${PROMPTS_DIR}${N}"
+    echo -e "  ${I18N_DOCTOR_CUSTOM_PROMPTS}:   ${W}${PROMPTS_DIR}${N}"
   fi
   echo ""
 
   # ── Models ───────────────────────────────────────────────────────────────────
-  echo -e "${W}▸ Models${N}"
+  echo -e "${W}▸ ${I18N_DOCTOR_MODELS}${N}"
   echo -e "  Planner:              ${W}${COPILOT_MODEL_PLANNER:-default}${N}"
   echo -e "  Generator (contract): ${W}${COPILOT_MODEL_GENERATOR_CONTRACT:-default}${N}"
   echo -e "  Generator (impl):     ${W}${COPILOT_MODEL_GENERATOR_IMPL:-default}${N}"
@@ -3727,37 +3927,37 @@ cmd_doctor() {
   echo ""
 
   # ── Active run ───────────────────────────────────────────────────────────────
-  echo -e "${W}▸ Active Run${N}"
+  echo -e "${W}▸ ${I18N_DOCTOR_ACTIVE_RUN}${N}"
   local run_id; run_id=$(current_run_id)
   if [[ -n "$run_id" ]]; then
     local run_dir="$HARN_DIR/runs/$run_id"
     local slug; slug=$(cat "$run_dir/prompt.txt" 2>/dev/null || echo "unknown")
     local sprint_num; sprint_num=$(current_sprint_num "$run_dir")
     echo -e "  ${G}✓${N} Run:          ${W}${run_id}${N}  (${slug})"
-    echo -e "  Sprint:       ${W}${sprint_num}${N}"
+    echo -e "  ${I18N_DOCTOR_SPRINT}:       ${W}${sprint_num}${N}"
   else
-    echo -e "  No active run"
+    echo -e "  ${I18N_DOCTOR_NO_RUN}"
   fi
   echo ""
 
   # ── Dependencies ─────────────────────────────────────────────────────────────
-  echo -e "${W}▸ Other Dependencies${N}"
+  echo -e "${W}▸ ${I18N_DOCTOR_DEPS}${N}"
   local all_ok=1
   for dep in python3 node; do
     if command -v "$dep" &>/dev/null; then
       local dver; dver=$($dep --version 2>/dev/null | head -1)
       echo -e "  ${G}✓${N} ${dep}:       ${C}${dver}${N}"
     else
-      echo -e "  ${Y}?${N} ${dep}:       not found (optional)"
+      echo -e "  ${Y}?${N} ${dep}:       ${I18N_DOCTOR_NOT_FOUND} (${I18N_DOCTOR_OPTIONAL})"
       all_ok=0
     fi
   done
   echo ""
 
   if [[ $backend_ok -eq 1 ]]; then
-    echo -e "${G}All critical checks passed.${N}\n"
+    echo -e "${G}${I18N_DOCTOR_ALL_OK}${N}\n"
   else
-    echo -e "${R}⚠ One or more critical checks failed. Run: harn init${N}\n"
+    echo -e "${R}⚠ ${I18N_DOCTOR_FAIL_MSG}${N}\n"
   fi
 }
 
