@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.4.2"
+HARN_VERSION="1.5.0"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -116,6 +116,8 @@ log_agent_start() {
   case "$model" in
     *claude*) ansi_color=$'\033[0;34m' ;;  # blue
     copilot*) ansi_color=$'\033[0;32m' ;;  # green
+    codex*)   ansi_color=$'\033[0;33m' ;;  # yellow
+    gemini*)  ansi_color=$'\033[0;35m' ;;  # magenta
     *)        ansi_color=$'\033[0;36m' ;;  # cyan
   esac
   local output
@@ -975,10 +977,12 @@ _i18n_load() {
     I18N_INIT_HINT_START="  harn start    — 루프 시작"
     # AI CLI check / backend selection
     I18N_NO_AI_CLI="AI CLI를 찾을 수 없어요."
-    I18N_NO_AI_CLI_HINT="harn은 GitHub Copilot CLI 또는 Claude CLI가 필요합니다."
+    I18N_NO_AI_CLI_HINT="harn은 GitHub Copilot CLI, Claude CLI, OpenAI Codex CLI, 또는 Gemini CLI가 필요합니다."
     I18N_AI_BACKEND_TITLE="기본 AI 백엔드"
     I18N_AI_USING_COPILOT="${G}✓${N} ${W}copilot${N} 사용 (GitHub Copilot CLI 감지됨)"
     I18N_AI_USING_CLAUDE="${G}✓${N} ${W}claude${N} 사용 (Anthropic Claude CLI 감지됨)"
+    I18N_AI_USING_CODEX="${G}✓${N} ${W}codex${N} 사용 (OpenAI Codex CLI 감지됨)"
+    I18N_AI_USING_GEMINI="${G}✓${N} ${W}gemini${N} 사용 (Google Gemini CLI 감지됨)"
     # cmd_backlog
     I18N_BACKLOG_TITLE="대기 중인 백로그 항목:"
     I18N_BACKLOG_EMPTY="(없음 — 모두 완료!)"
@@ -1299,10 +1303,12 @@ _i18n_load() {
     I18N_INIT_HINT_START="  harn start    — start the loop"
     # AI CLI check / backend selection
     I18N_NO_AI_CLI="${R}✗ No AI CLI found.${N}"
-    I18N_NO_AI_CLI_HINT="harn requires GitHub Copilot CLI or Claude CLI."
+    I18N_NO_AI_CLI_HINT="harn requires GitHub Copilot CLI, Claude CLI, OpenAI Codex CLI, or Gemini CLI."
     I18N_AI_BACKEND_TITLE="Default AI backend"
     I18N_AI_USING_COPILOT="${G}✓${N} Using ${W}copilot${N} (GitHub Copilot CLI detected)"
     I18N_AI_USING_CLAUDE="${G}✓${N} Using ${W}claude${N} (Anthropic Claude CLI detected)"
+    I18N_AI_USING_CODEX="${G}✓${N} Using ${W}codex${N} (OpenAI Codex CLI detected)"
+    I18N_AI_USING_GEMINI="${G}✓${N} Using ${W}gemini${N} (Google Gemini CLI detected)"
     # cmd_backlog
     I18N_BACKLOG_TITLE="Pending backlog items:"
     I18N_BACKLOG_EMPTY="(none — all done!)"
@@ -1584,20 +1590,24 @@ _detect_ai_cli() {
   if [[ -n "$backend" ]]; then
     echo "$backend"; return
   fi
-  # Auto-detect
+  # Auto-detect in preference order
   if command -v copilot &>/dev/null; then echo "copilot"
-  elif command -v claude &>/dev/null; then echo "claude"
+  elif command -v claude  &>/dev/null; then echo "claude"
+  elif command -v codex   &>/dev/null; then echo "codex"
+  elif command -v gemini  &>/dev/null; then echo "gemini"
   else echo ""
   fi
 }
 
 # Check which AI CLIs are installed; print a guidance message if none
 _check_ai_cli_installed() {
-  local has_copilot=false has_claude=false
+  local has_copilot=false has_claude=false has_codex=false has_gemini=false
   command -v copilot &>/dev/null && has_copilot=true
-  command -v claude   &>/dev/null && has_claude=true
+  command -v claude  &>/dev/null && has_claude=true
+  command -v codex   &>/dev/null && has_codex=true
+  command -v gemini  &>/dev/null && has_gemini=true
 
-  if [[ "$has_copilot" == "false" && "$has_claude" == "false" ]]; then
+  if [[ "$has_copilot" == "false" && "$has_claude" == "false" && "$has_codex" == "false" && "$has_gemini" == "false" ]]; then
     echo -e "\n${I18N_NO_AI_CLI}"
     echo -e "  ${I18N_NO_AI_CLI_HINT}\n"
     return 1
@@ -1607,35 +1617,62 @@ _check_ai_cli_installed() {
 
 # Interactive AI backend selection; sets AI_BACKEND variable
 _select_ai_backend() {
-  local has_copilot=false has_claude=false
+  local has_copilot=false has_claude=false has_codex=false has_gemini=false
   command -v copilot &>/dev/null && has_copilot=true
-  command -v claude   &>/dev/null && has_claude=true
+  command -v claude  &>/dev/null && has_claude=true
+  command -v codex   &>/dev/null && has_codex=true
+  command -v gemini  &>/dev/null && has_gemini=true
 
-  if [[ "$has_copilot" == "true" && "$has_claude" == "true" ]]; then
+  # Build menu from installed CLIs
+  local available=()
+  [[ "$has_copilot" == "true" ]] && available+=("copilot  (GitHub Copilot CLI)")
+  [[ "$has_claude"  == "true" ]] && available+=("claude   (Anthropic Claude CLI)")
+  [[ "$has_codex"   == "true" ]] && available+=("codex    (OpenAI Codex CLI)")
+  [[ "$has_gemini"  == "true" ]] && available+=("gemini   (Google Gemini CLI)")
+
+  if [[ ${#available[@]} -eq 0 ]]; then
+    return 1
+  elif [[ ${#available[@]} -eq 1 ]]; then
+    # Only one available — auto-select and show message
+    local only="${available[0]%%\ *}"
+    AI_BACKEND="$only"
+    case "$only" in
+      copilot) echo -e "\n${I18N_AI_USING_COPILOT}" ;;
+      claude)  echo -e "\n${I18N_AI_USING_CLAUDE}"  ;;
+      codex)   echo -e "\n${I18N_AI_USING_CODEX}"   ;;
+      gemini)  echo -e "\n${I18N_AI_USING_GEMINI}"  ;;
+    esac
+  else
     local choice
-    choice=$(_pick_menu "$I18N_AI_BACKEND_TITLE" 0 "copilot  (GitHub Copilot CLI)" "claude   (Anthropic Claude CLI)") || return 1
-    [[ "$choice" == claude* ]] && AI_BACKEND="claude" || AI_BACKEND="copilot"
-  elif [[ "$has_copilot" == "true" ]]; then
-    AI_BACKEND="copilot"
-    echo -e "\n${I18N_AI_USING_COPILOT}"
-  elif [[ "$has_claude" == "true" ]]; then
-    AI_BACKEND="claude"
-    echo -e "\n${I18N_AI_USING_CLAUDE}"
+    choice=$(_pick_menu "$I18N_AI_BACKEND_TITLE" 0 "${available[@]}") || return 1
+    AI_BACKEND="${choice%%\ *}"
   fi
 }
 
 _get_models_for_backend() {
   local backend="$1"
-  if [[ "$backend" == "claude" ]]; then
-    printf '%s\n' \
-      "claude-haiku-4.5" "claude-sonnet-4.5" "claude-sonnet-4.6" \
-      "claude-opus-4.5"  "claude-opus-4.6"
-  else  # copilot — supports both claude and GPT models
-    printf '%s\n' \
-      "claude-haiku-4.5" "claude-sonnet-4.5" "claude-sonnet-4.6" \
-      "claude-opus-4.5"  "claude-opus-4.6" \
-      "gpt-4.1" "gpt-4o" "gpt-4o-mini" "o1" "o3-mini"
-  fi
+  case "$backend" in
+    claude)
+      printf '%s\n' \
+        "claude-haiku-4.5" "claude-sonnet-4.5" "claude-sonnet-4.6" \
+        "claude-opus-4.5"  "claude-opus-4.6"
+      ;;
+    codex)
+      printf '%s\n' \
+        "codex-mini-latest" "o4-mini" "o3" "o3-mini" "gpt-4.1" "gpt-4o"
+      ;;
+    gemini)
+      printf '%s\n' \
+        "gemini-2.5-pro" "gemini-2.5-flash" "gemini-2.0-flash" \
+        "gemini-1.5-pro" "gemini-1.5-flash"
+      ;;
+    copilot|*)  # copilot supports both claude and GPT models
+      printf '%s\n' \
+        "claude-haiku-4.5" "claude-sonnet-4.5" "claude-sonnet-4.6" \
+        "claude-opus-4.5"  "claude-opus-4.6" \
+        "gpt-4.1" "gpt-4o" "gpt-4o-mini" "o1" "o3-mini"
+      ;;
+  esac
 }
 
 # Select AI backend + model for a role interactively.
@@ -1643,23 +1680,21 @@ _get_models_for_backend() {
 _pick_role_model() {
   local role_label="$1" default_backend="${2:-copilot}" default_model="$3"
 
-  local has_copilot=false has_claude=false
+  local has_copilot=false has_claude=false has_codex=false has_gemini=false
   command -v copilot &>/dev/null && has_copilot=true
   command -v claude  &>/dev/null && has_claude=true
-  [[ "$has_copilot" == "false" && "$has_claude" == "false" ]] && {
+  command -v codex   &>/dev/null && has_codex=true
+  command -v gemini  &>/dev/null && has_gemini=true
+  [[ "$has_copilot" == "false" && "$has_claude" == "false" && "$has_codex" == "false" && "$has_gemini" == "false" ]] && {
     log_err "No AI CLI found. Run: harn init"; return 1
   }
 
   # Build flat combined list: "backend / model"
   local options=()
-  if [[ "$has_copilot" == "true" ]]; then
-    while IFS= read -r m; do [[ -n "$m" ]] && options+=("copilot / $m"); done \
-      < <(_get_models_for_backend "copilot")
-  fi
-  if [[ "$has_claude" == "true" ]]; then
-    while IFS= read -r m; do [[ -n "$m" ]] && options+=("claude / $m"); done \
-      < <(_get_models_for_backend "claude")
-  fi
+  [[ "$has_copilot" == "true" ]] && while IFS= read -r m; do [[ -n "$m" ]] && options+=("copilot / $m"); done < <(_get_models_for_backend "copilot")
+  [[ "$has_claude"  == "true" ]] && while IFS= read -r m; do [[ -n "$m" ]] && options+=("claude / $m");  done < <(_get_models_for_backend "claude")
+  [[ "$has_codex"   == "true" ]] && while IFS= read -r m; do [[ -n "$m" ]] && options+=("codex / $m");   done < <(_get_models_for_backend "codex")
+  [[ "$has_gemini"  == "true" ]] && while IFS= read -r m; do [[ -n "$m" ]] && options+=("gemini / $m");  done < <(_get_models_for_backend "gemini")
 
   # Find default index
   local def_i=0
@@ -1686,6 +1721,8 @@ _ai_generate() {
   case "$ai_cmd" in
     copilot) copilot --yolo -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
     claude)  claude -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
+    codex)   codex -q "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
+    gemini)  gemini -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
   esac
   if [[ $rc -ne 0 ]]; then
     local err_msg; err_msg=$(cat "$err_file" 2>/dev/null | head -5)
@@ -2407,6 +2444,8 @@ invoke_role() {
   local _role_label
   case "$backend" in
     claude)  _role_label="claude";  [[ -n "$model" ]] && _role_label="claude ($model)"  ;;
+    codex)   _role_label="codex";   [[ -n "$model" ]] && _role_label="codex ($model)"   ;;
+    gemini)  _role_label="gemini";  [[ -n "$model" ]] && _role_label="gemini ($model)"  ;;
     copilot|*) _role_label="copilot"; [[ -n "$model" ]] && _role_label="copilot ($model)" ;;
   esac
   log_agent_start "$_role_label" "$role_label" "output → $(basename "$output_file")"
@@ -2423,6 +2462,30 @@ invoke_role() {
         | tee -a "$LOG_FILE" \
         | _md_stream || exit_code=${PIPESTATUS[0]}
       [[ $exit_code -ne 0 ]] && log_warn "claude exited abnormally (exit $exit_code)"
+      log_agent_done "$_role_label"
+      ;;
+    codex)
+      local prompt_text="$prompt_input"
+      [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
+      local -a codex_cmd=(codex -q "$prompt_text")
+      [[ -n "$model" ]] && codex_cmd+=(--model "$model")
+      "${codex_cmd[@]}" 2>&1 \
+        | tee "$output_file" \
+        | tee -a "$LOG_FILE" \
+        | _md_stream || exit_code=${PIPESTATUS[0]}
+      [[ $exit_code -ne 0 ]] && log_warn "codex exited abnormally (exit $exit_code)"
+      log_agent_done "$_role_label"
+      ;;
+    gemini)
+      local prompt_text="$prompt_input"
+      [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
+      local -a gemini_cmd=(gemini -p "$prompt_text")
+      [[ -n "$model" ]] && gemini_cmd+=(--model "$model")
+      "${gemini_cmd[@]}" 2>&1 \
+        | tee "$output_file" \
+        | tee -a "$LOG_FILE" \
+        | _md_stream || exit_code=${PIPESTATUS[0]}
+      [[ $exit_code -ne 0 ]] && log_warn "gemini exited abnormally (exit $exit_code)"
       log_agent_done "$_role_label"
       ;;
     copilot|*)
