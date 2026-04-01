@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.0.3"
+HARN_VERSION="1.0.4"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -33,7 +33,7 @@ BACKLOG_FILE_DISPLAY="${BACKLOG_FILE}"
 MAX_ITERATIONS=5
 GIT_ENABLED="false"
 GIT_BASE_BRANCH="main"
-GIT_UPSTREAM_REMOTE="upstream"
+GIT_PR_TARGET_BRANCH="main"
 GIT_PLAN_PREFIX="plan/"
 GIT_FEAT_PREFIX="feat/"
 GIT_AUTO_PUSH="false"
@@ -646,15 +646,15 @@ cmd_init() {
   printf "Enable Git integration? [y/N]: "
   local git_yn; git_yn=$(_input_readline); echo ""
   local git_en="false"
-  local git_branch="main" git_upstream_remote="upstream" git_auto_push="false" git_auto_pr="false" git_pr_draft="true" git_guide=""
+  local git_branch="main" git_pr_target="main" git_auto_push="false" git_auto_pr="false" git_pr_draft="true" git_guide=""
 
   if [[ "$git_yn" == "y" || "$git_yn" == "Y" ]]; then
     git_en="true"
-    printf "Base branch [main]: "
+    printf "Base working branch (branch off from) [main]: "
     local gb; gb=$(_input_readline); echo ""; git_branch="${gb:-main}"
 
-    printf "Upstream remote name [upstream]: "
-    local gur; gur=$(_input_readline); echo ""; git_upstream_remote="${gur:-upstream}"
+    printf "PR target branch (where PRs are merged into) [%s]: " "$git_branch"
+    local gpt; gpt=$(_input_readline); echo ""; git_pr_target="${gpt:-$git_branch}"
 
     printf "Auto push? [y/N]: "
     local gp; gp=$(_input_readline); echo ""
@@ -716,7 +716,7 @@ MODEL_EVALUATOR_QA="${meq}"
 # === Git integration ===
 GIT_ENABLED="${git_en}"
 GIT_BASE_BRANCH="${git_branch}"
-GIT_UPSTREAM_REMOTE="${git_upstream_remote}"
+GIT_PR_TARGET_BRANCH="${git_pr_target}"
 GIT_PLAN_PREFIX="plan/"
 GIT_FEAT_PREFIX="feat/"
 GIT_AUTO_PUSH="${git_auto_push}"
@@ -1692,6 +1692,7 @@ Write exactly one line at the end of the report:
   if grep -qiE 'VERDICT[[:space:]]*:[[:space:]]*PASS' "$sprint/qa-report.md"; then
     echo "pass" > "$sprint/status"
     log_ok "Sprint $sprint_num: ${G}PASS${N}"
+    _git_push_sprint_pass "$sprint_num"
     log_info "Next step: harn next"
   else
     echo "fail" > "$sprint/status"
@@ -1842,7 +1843,7 @@ _git_setup_plan_branch() {
 
   local slug="$1" run_dir="$2" plan_text="$3"
   local branch="${GIT_PLAN_PREFIX}${slug}"
-  local upstream="${GIT_UPSTREAM_REMOTE:-upstream}"
+  local pr_target="${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}"
 
   log_step "Git: Creating planning branch"
 
@@ -1876,7 +1877,7 @@ _git_setup_plan_branch() {
     fi
   fi
 
-  # Push branch to origin (fork) — required for PR creation
+  # Push branch to origin
   if ! git -C "$ROOT_DIR" push -u origin "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
     log_warn "Push failed — skipping Draft PR creation. Push manually and create a PR."
     log_info "Branch: ${W}$branch${N}"
@@ -1884,7 +1885,7 @@ _git_setup_plan_branch() {
   fi
   log_ok "Branch pushed: origin/${W}$branch${N}"
 
-  # Create Draft PR — targeting the upstream remote's repository
+  # Create Draft PR
   local pr_title="[Plan] ${slug}: ${plan_text}"
   local pr_body
   pr_body=$(cat "$run_dir/spec.md" 2>/dev/null || echo "$plan_text")
@@ -1892,28 +1893,13 @@ _git_setup_plan_branch() {
   local draft_flag="--draft"
   [[ "$GIT_PR_DRAFT" == "false" ]] && draft_flag=""
 
-  # Convert upstream remote URL → owner/repo format for --repo flag
-  local upstream_url upstream_nwo
-  upstream_url=$(git -C "$ROOT_DIR" remote get-url "$upstream" 2>/dev/null || echo "")
-  upstream_nwo=$(_git_url_to_nwo "$upstream_url")
-
-  # For fork PRs, --head needs fork_owner:branch format
-  # Extract fork owner from origin URL
-  local origin_url fork_owner head_ref
-  origin_url=$(git -C "$ROOT_DIR" remote get-url origin 2>/dev/null || echo "")
-  fork_owner=$(_git_url_to_nwo "$origin_url" | cut -d'/' -f1)
-  head_ref="$branch"
-  [[ -n "$upstream_url" && -n "$fork_owner" ]] && head_ref="${fork_owner}:${branch}"
-
-  log_info "Creating Draft PR... (base: ${upstream_nwo:-$upstream}/${GIT_BASE_BRANCH}, head: ${head_ref})"
-  local pr_out pr_repo_flag=""
-  [[ -n "$upstream_nwo" ]] && pr_repo_flag="--repo $upstream_nwo"
+  log_info "Creating Draft PR... (base: ${W}${pr_target}${N}, head: ${W}${branch}${N})"
+  local pr_out
 
   # shellcheck disable=SC2086
   if pr_out=$(gh pr create \
-      $pr_repo_flag \
-      --base "$GIT_BASE_BRANCH" \
-      --head "$head_ref" \
+      --base "$pr_target" \
+      --head "$branch" \
       --title "$pr_title" \
       --body "$pr_body" \
       $draft_flag 2>&1); then
@@ -1921,7 +1907,7 @@ _git_setup_plan_branch() {
     echo "$pr_out" > "$run_dir/pr-url.txt"
   else
     log_warn "PR creation failed — create it manually"
-    log_info "Branch: origin/${W}$branch${N}  →  ${upstream_nwo:-$upstream}/${W}$GIT_BASE_BRANCH${N}"
+    log_info "Branch: origin/${W}$branch${N}  →  ${W}$pr_target${N}"
     log_info "Error: $pr_out"
   fi
 }
@@ -1965,27 +1951,51 @@ _git_commit_sprint_impl() {
   fi
 }
 
-# ── Git merge helper ─────────────────────────────────────────────────────────
+_git_push_sprint_pass() {
+  [[ "$GIT_ENABLED" != "true" ]] && return 0
+
+  local sprint_num="$1"
+  local cur_branch
+  cur_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+  if [[ -z "$cur_branch" || "$cur_branch" == "HEAD" ]]; then
+    log_warn "Git: Cannot determine HEAD — skipping push"
+    return 0
+  fi
+
+  log_step "Git: Sprint $sprint_num passed — pushing to origin/${W}${cur_branch}${N}"
+  cd "$ROOT_DIR"
+
+  # Commit any uncommitted changes (e.g. qa-report.md, status files)
+  git add -A
+  if ! git diff --cached --quiet 2>/dev/null; then
+    git commit -m "qa(sprint-${sprint_num}): evaluator PASS — sprint complete" \
+      2>&1 | while IFS= read -r line; do log_info "$line"; done
+  fi
+
+  if git push origin "$cur_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
+    log_ok "Push done: origin/${W}${cur_branch}${N}"
+  else
+    log_warn "Push failed — run: git push origin ${cur_branch}"
+  fi
+}
+
+
 _git_merge_to_base() {
   [[ "$GIT_ENABLED" != "true" ]]    && return 0
-  [[ "$GIT_AUTO_MERGE" != "true" ]] && return 0   # (A) GIT_AUTO_MERGE gate
+  [[ "$GIT_AUTO_MERGE" != "true" ]] && return 0
 
-  local feat_branch base_branch upstream
+  local feat_branch base_branch pr_target
   feat_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   base_branch="$GIT_BASE_BRANCH"
-  upstream="${GIT_UPSTREAM_REMOTE:-upstream}"
+  pr_target="${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}"
 
   if [[ -z "$feat_branch" || "$feat_branch" == "$base_branch" || "$feat_branch" == "HEAD" ]]; then
     log_warn "Git: Cannot identify feature branch to merge (current: ${feat_branch:-unknown})"
     return 0
   fi
 
-  log_step "Git finalize: ${W}${feat_branch}${N} → ${W}${upstream}/${base_branch}${N}"
-
-  # Determine upstream NWO (required for gh pr merge --repo)
-  local upstream_url upstream_nwo
-  upstream_url=$(git -C "$ROOT_DIR" remote get-url "$upstream" 2>/dev/null || echo "")
-  upstream_nwo=$(_git_url_to_nwo "$upstream_url")
+  log_step "Git finalize: ${W}${feat_branch}${N} → ${W}${pr_target}${N}"
 
   # Commit uncommitted changes (including backlog Done status, etc.)
   cd "$ROOT_DIR"
@@ -1996,7 +2006,7 @@ _git_merge_to_base() {
       2>&1 | while IFS= read -r line; do log_info "$line"; done
   fi
 
-  # Push feature branch to origin (required to update PR)
+  # Push feature branch to origin
   log_info "Updating PR: pushing origin/${W}${feat_branch}${N}..."
   if ! git push origin "$feat_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
     log_warn "Push failed — merge the PR manually"
@@ -2004,36 +2014,31 @@ _git_merge_to_base() {
   fi
   log_ok "Push done: origin/${W}${feat_branch}${N}"
 
-  # (B) gh pr merge —merge (not squash): merge via GitHub PR
-  local pr_url_file pr_url pr_repo_flag=""
+  # gh pr merge — not squash
+  local pr_url_file pr_url
   pr_url_file="$(require_run_dir 2>/dev/null)/pr-url.txt"
   pr_url=$(cat "$pr_url_file" 2>/dev/null || echo "")
-  [[ -n "$upstream_nwo" ]] && pr_repo_flag="--repo $upstream_nwo"
 
   local merge_target="${pr_url:-$feat_branch}"
-  log_info "Merging PR... (not squash): ${W}${merge_target}${N}"
+  log_info "Merging PR (not squash): ${W}${merge_target}${N}"
 
-  # shellcheck disable=SC2086
-  if gh pr merge "$merge_target" \
-      $pr_repo_flag \
-      --merge 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "PR merge complete: ${W}${feat_branch}${N} → ${upstream_nwo:-$upstream}/${W}${base_branch}${N}"
+  if gh pr merge "$merge_target" --merge 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
+    log_ok "PR merge complete: ${W}${feat_branch}${N} → ${W}${pr_target}${N}"
   else
     log_warn "gh pr merge failed — merge the PR on GitHub manually and then continue"
-    log_info "PR: ${pr_url:-https://github.com/${upstream_nwo}/pulls}"
+    log_info "PR: ${pr_url:-}"
     return 1
   fi
 
-  # Return to base branch
+  # Return to base branch and pull
   log_info "Returning to base branch: ${W}${base_branch}${N}"
   git checkout "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
 
-  # (C) git pull (not rebase) — sync merged commits
-  log_info "Pulling ${W}${upstream}/${base_branch}${N}..."
-  if git pull "$upstream" "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "Pull complete: ${upstream}/${W}${base_branch}${N}"
+  log_info "Pulling origin/${W}${base_branch}${N}..."
+  if git pull origin "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
+    log_ok "Pull complete: origin/${W}${base_branch}${N}"
   else
-    log_warn "Pull failed — pull ${upstream}/${base_branch} manually"
+    log_warn "Pull failed — run: git pull origin ${base_branch}"
     return 1
   fi
 }
@@ -2683,7 +2688,8 @@ cmd_config() {
       echo -e "  Max retries:       ${W}$MAX_ITERATIONS${N}"
       echo -e "  Git integration:   ${W}$GIT_ENABLED${N}"
       [[ "$GIT_ENABLED" == "true" ]] && {
-        echo -e "  Base branch:       ${W}$GIT_BASE_BRANCH${N}"
+        echo -e "  Base working branch: ${W}$GIT_BASE_BRANCH${N}"
+        echo -e "  PR target branch:  ${W}${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}${N}"
         echo -e "  Auto push:         ${W}$GIT_AUTO_PUSH${N}"
         echo -e "  Auto PR:           ${W}$GIT_AUTO_PR${N}"
       }
