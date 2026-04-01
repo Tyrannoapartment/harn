@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.5"
+HARN_VERSION="1.1.6"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -402,8 +402,11 @@ def render():
 selected  = None
 cancelled = False
 try:
-    fd.write(f"\r\n  \033[1m{prompt}\033[0m\r\n".encode())
-    fd.write(b"  \033[2m(\xe2\x86\x91\xe2\x86\x93 navigate  Enter select  Ctrl+Q cancel)\033[0m\r\n\r\n")
+    if prompt:
+        fd.write(f"\r\n  \033[1m{prompt}\033[0m\r\n".encode())
+        fd.write(b"  \033[2m(\xe2\x86\x91\xe2\x86\x93 navigate  Enter select  Ctrl+Q cancel)\033[0m\r\n\r\n")
+    else:
+        fd.write(b"  \033[2m(\xe2\x86\x91\xe2\x86\x93 navigate  Enter select  Ctrl+Q cancel)\033[0m\r\n\r\n")
     fd.write(render())
     fd.write(f"\033[{n}A".encode())
     fd.flush()
@@ -615,7 +618,8 @@ _pick_role_model() {
   done
 
   local selected
-  selected=$(_pick_menu "${role_label}" "$def_i" "${options[@]}") || return 1
+  # Pass empty prompt — title already printed by caller with description
+  selected=$(_pick_menu "" "$def_i" "${options[@]}") || return 1
 
   # Parse "backend / model" → "backend model"
   local backend="${selected%% /*}"
