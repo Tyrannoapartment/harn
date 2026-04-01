@@ -1,4 +1,5 @@
 .DS_Store
-.harness/
 .harness_config
 .claude/
+.idea/
+.harn/
