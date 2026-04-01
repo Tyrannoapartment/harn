@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.2"
+HARN_VERSION="1.1.3"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -741,26 +741,31 @@ cmd_init() {
   echo -e "  ${D}Use ↑↓ arrows to navigate, Enter to select, Ctrl+Q to cancel init${N}\n"
 
   local mp mp_backend _tmp_p
+  echo -e "  ${W}Planner${N}  ${D}— reads backlog item, writes product spec & sprint breakdown${N}"
   _tmp_p=$(_pick_role_model "Planner" "${AI_BACKEND:-copilot}" "claude-haiku-4.5") \
     || { echo ""; log_info "Init cancelled"; return 0; }
   read -r mp_backend mp <<< "$_tmp_p"
 
   local mgc mgc_backend _tmp_gc
+  echo -e "\n  ${W}Generator (contract)${N}  ${D}— proposes sprint scope; negotiates with Evaluator before coding starts${N}"
   _tmp_gc=$(_pick_role_model "Generator (contract)" "${AI_BACKEND:-copilot}" "claude-sonnet-4.6") \
     || { echo ""; log_info "Init cancelled"; return 0; }
   read -r mgc_backend mgc <<< "$_tmp_gc"
 
   local mgi mgi_backend _tmp_gi
+  echo -e "\n  ${W}Generator (impl)${N}  ${D}— writes the actual code; most important role, use the strongest model${N}"
   _tmp_gi=$(_pick_role_model "Generator (impl)" "${AI_BACKEND:-copilot}" "claude-opus-4.6") \
     || { echo ""; log_info "Init cancelled"; return 0; }
   read -r mgi_backend mgi <<< "$_tmp_gi"
 
   local mec mec_backend _tmp_ec
+  echo -e "\n  ${W}Evaluator (contract)${N}  ${D}— reviews sprint scope proposal, approves or requests revision${N}"
   _tmp_ec=$(_pick_role_model "Evaluator (contract)" "${AI_BACKEND:-copilot}" "claude-haiku-4.5") \
     || { echo ""; log_info "Init cancelled"; return 0; }
   read -r mec_backend mec <<< "$_tmp_ec"
 
   local meq meq_backend _tmp_eq
+  echo -e "\n  ${W}Evaluator (QA)${N}  ${D}— reviews implementation, runs tests, issues PASS or FAIL verdict${N}"
   _tmp_eq=$(_pick_role_model "Evaluator (QA)" "${AI_BACKEND:-copilot}" "claude-sonnet-4.5") \
     || { echo ""; log_info "Init cancelled"; return 0; }
   read -r meq_backend meq <<< "$_tmp_eq"
