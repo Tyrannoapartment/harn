@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.7"
+HARN_VERSION="1.2.0"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -168,7 +168,308 @@ log_agent_done() {
   _log_raw "${D}  ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌${N}"
 }
 
-# ── Banner ─────────────────────────────────────────────────────────────────────
+# ── Guidance (mid-run messages) ───────────────────────────────────────────────
+
+GUIDANCE_LISTENER_PID=""
+
+_stop_guidance_listener() {
+  local pid="${1:-$GUIDANCE_LISTENER_PID}"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    kill -TERM "$pid" 2>/dev/null
+    # Wait briefly for terminal restore
+    local i=0
+    while kill -0 "$pid" 2>/dev/null && [[ $i -lt 10 ]]; do
+      sleep 0.1; ((i++))
+    done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+  fi
+  GUIDANCE_LISTENER_PID=""
+}
+
+# Inline Python script for the guidance listener
+# Written to a temp file and sourced/run as a Python subprocess
+_guidance_listener_py() {
+python3 -u - "$1" << 'PYEOF'
+import sys, os, signal, select, termios, datetime, fcntl, struct, time
+
+inbox_file = sys.argv[1]
+
+def get_size():
+    try:
+        buf = fcntl.ioctl(1, termios.TIOCGWINSZ, b'\x00' * 8)
+        rows, cols = struct.unpack('HH', buf[:4])
+        return (rows or 24), (cols or 80)
+    except Exception:
+        return 24, 80
+
+try:
+    tfd = os.open('/dev/tty', os.O_RDWR | os.O_NOCTTY)
+    orig_attrs = termios.tcgetattr(tfd)
+except Exception:
+    sys.exit(0)
+
+def restore():
+    try:
+        os.write(tfd, b'\0337')            # save cursor (fallback)
+        rows, cols = get_size()
+        # Clear scroll region
+        os.write(tfd, b'\033[r')
+        # Clear bottom 2 rows
+        os.write(tfd, f'\033[{rows-1};1H\033[2K\033[{rows};1H\033[2K'.encode())
+        # Show cursor, restore attrs
+        os.write(tfd, b'\033[?25h')
+        termios.tcsetattr(tfd, termios.TCSANOW, orig_attrs)
+    except Exception:
+        pass
+
+def set_cbreak():
+    mode = list(termios.tcgetattr(tfd))
+    # Disable ECHO and ICANON, keep OPOST intact
+    mode[3] = mode[3] & ~(termios.ECHO | termios.ICANON | termios.IEXTEN)
+    mode[6][termios.VMIN] = 1
+    mode[6][termios.VTIME] = 0
+    termios.tcsetattr(tfd, termios.TCSANOW, mode)
+
+def draw_bar(buf=''):
+    rows, cols = get_size()
+    # Set scroll region (top 1 to rows-2, leaving bottom 2 for input bar)
+    os.write(tfd, f'\033[1;{rows-2}r'.encode())
+    # Save cursor
+    os.write(tfd, b'\033[s')
+    # Draw separator line (row rows-1)
+    sep = ('─' * cols)
+    os.write(tfd, f'\033[{rows-1};1H\033[2K\033[2m{sep}\033[0m'.encode())
+    # Draw input row (row rows)
+    os.write(tfd, f'\033[{rows};1H\033[2K'.encode())
+    prompt_str = '  \033[1;35m💬\033[0m  \033[1m>\033[0m  '
+    prompt_visible = 8  # visual width of prompt
+    avail = cols - prompt_visible - 1
+    display = buf[-avail:] if len(buf) > avail else buf
+    os.write(tfd, (prompt_str + display).encode())
+    # Restore cursor
+    os.write(tfd, b'\033[u')
+
+def on_sigterm(sig, frame):
+    restore()
+    sys.exit(0)
+
+def on_sigwinch(sig, frame):
+    try:
+        draw_bar(current_buf[0])
+    except Exception:
+        pass
+
+signal.signal(signal.SIGTERM, on_sigterm)
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+try:
+    signal.signal(signal.SIGWINCH, on_sigwinch)
+except Exception:
+    pass
+
+set_cbreak()
+
+current_buf = ['']  # mutable for sigwinch handler
+draw_bar()
+
+pending = b''
+try:
+    while True:
+        try:
+            r, _, _ = select.select([tfd], [], [], 1.0)
+        except Exception:
+            time.sleep(0.2)
+            continue
+        if not r:
+            continue
+        chunk = os.read(tfd, 64)
+        if not chunk:
+            break
+        pending += chunk
+        while pending:
+            b0 = pending[0]
+            if b0 < 0x80:
+                char = chr(b0)
+                pending = pending[1:]
+            elif b0 < 0xE0:
+                if len(pending) < 2: break
+                char = pending[:2].decode('utf-8', 'replace')
+                pending = pending[2:]
+            elif b0 < 0xF0:
+                if len(pending) < 3: break
+                char = pending[:3].decode('utf-8', 'replace')
+                pending = pending[3:]
+            else:
+                if len(pending) < 4: break
+                char = pending[:4].decode('utf-8', 'replace')
+                pending = pending[4:]
+
+            code = b0 if b0 < 0x80 else -1
+
+            if code in (13, 10):  # Enter
+                if current_buf[0].strip():
+                    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+                    with open(inbox_file, 'a') as f:
+                        f.write(f'[{ts}] {current_buf[0]}\n')
+                current_buf[0] = ''
+                draw_bar()
+            elif code in (127, 8):  # Backspace
+                if current_buf[0]:
+                    current_buf[0] = current_buf[0][:-1]
+                    draw_bar(current_buf[0])
+            elif code == 3:  # Ctrl+C
+                break
+            elif code == 27:  # ESC sequence — skip
+                pending = pending  # already advanced
+            elif code >= 32 or code < 0:  # printable / multibyte
+                current_buf[0] += char
+                draw_bar(current_buf[0])
+finally:
+    restore()
+PYEOF
+}
+
+_start_guidance_listener() {
+  local inbox_file="$1"
+  _guidance_listener_py "$inbox_file" &
+  GUIDANCE_LISTENER_PID=$!
+  disown "$GUIDANCE_LISTENER_PID" 2>/dev/null || true
+}
+
+_has_guidance() {
+  local role_type="$1"
+  local run_dir
+  run_dir=$(readlink -f "$HARN_DIR/current" 2>/dev/null) || return 1
+  [[ -f "$run_dir/guidance-${role_type}.md" && -s "$run_dir/guidance-${role_type}.md" ]] && return 0
+  [[ -f "$run_dir/guidance-context.md" && -s "$run_dir/guidance-context.md" ]] && return 0
+  return 1
+}
+
+_inject_guidance() {
+  local role_type="$1"
+  local run_dir
+  run_dir=$(readlink -f "$HARN_DIR/current" 2>/dev/null) || return 0
+  local block=""
+  local role_file="$run_dir/guidance-${role_type}.md"
+  if [[ -f "$role_file" && -s "$role_file" ]]; then
+    block+="$(cat "$role_file")"$'\n'
+    [[ "$role_type" != "context" ]] && > "$role_file"
+  fi
+  local ctx_file="$run_dir/guidance-context.md"
+  if [[ -f "$ctx_file" && -s "$ctx_file" ]]; then
+    block+="$(cat "$ctx_file")"$'\n'
+  fi
+  if [[ -n "$block" ]]; then
+    printf '## User Guidance (Mid-run Instructions)\n\nThe user sent these instructions while the previous agent was running — incorporate them:\n\n%s\n---\n\n' "$block"
+  fi
+}
+
+_classify_guidance() {
+  local msg="$1"
+  local ai_cmd
+  ai_cmd=$(_detect_ai_cli 2>/dev/null) || ai_cmd="copilot"
+  local prompt="다음 메시지의 의도를 implement, evaluate, plan, context 중 정확히 하나로만 답해줘 (단어 하나만):
+
+메시지: $msg
+
+- implement: 구현/코드/API/UI/기능 관련
+- evaluate: 테스트/검증/QA/확인 관련
+- plan: 계획/스프린트/목표/변경 관련
+- context: 위에 해당없는 배경지식/설정"
+
+  local result=""
+  case "$ai_cmd" in
+    copilot) result=$(copilot --yolo -p "$prompt" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]') ;;
+    claude)  result=$(claude -p "$prompt" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]') ;;
+  esac
+
+  case "${result:0:10}" in
+    *implement*) echo "implement" ;;
+    *evaluate*)  echo "evaluate"  ;;
+    *plan*)      echo "plan"      ;;
+    *context*)   echo "context"   ;;
+    *)
+      local lower; lower=$(echo "$msg" | tr '[:upper:]' '[:lower:]')
+      if   echo "$lower" | grep -qiE 'test|테스트|검증|qa|verify|coverage'; then echo "evaluate"
+      elif echo "$lower" | grep -qiE 'plan|계획|sprint|스프린트|목표|변경계획'; then echo "plan"
+      elif echo "$lower" | grep -qiE 'code|코드|구현|api|ui|함수|컴포넌트|기능'; then echo "implement"
+      else echo "implement"
+      fi
+      ;;
+  esac
+}
+
+_process_inbox() {
+  local inbox_file="$1"
+  [[ ! -f "$inbox_file" || ! -s "$inbox_file" ]] && return 0
+  local run_dir
+  run_dir=$(readlink -f "$HARN_DIR/current" 2>/dev/null) || return 0
+
+  local content; content=$(cat "$inbox_file")
+  > "$inbox_file"  # clear inbox
+
+  # Display received messages box
+  local term_cols; term_cols=$(tput cols 2>/dev/null || echo 80)
+  local inner=$((term_cols - 6))
+  local W="\033[1;37m" D="\033[2m" M="\033[1;35m" N="\033[0m"
+  local bar; bar=$(printf '  ╭─ %b💬 수신된 메시지%b ' "$M" "$N"; printf '─%.0s' $(seq 1 $((inner - 12))); printf '╮')
+  echo -e "\n$bar"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local ts="${line%%\]*}]"
+    local msg="${line#*\] }"
+    printf '  │  %b%s%b  %b%s%b\n' "$D" "$ts" "$N" "$W" "$msg" "$N"
+    # Classify
+    local intent; intent=$(_classify_guidance "$msg")
+    echo "$line" >> "$run_dir/guidance-${intent}.md"
+  done <<< "$content"
+  echo -e "  ╰$(printf '─%.0s' $(seq 1 $((inner + 2))))╯"
+
+  # Show routing summary
+  local -A labels=([implement]="Generator" [evaluate]="Evaluator" [plan]="Planner" [context]="모든 에이전트")
+  for t in implement evaluate plan context; do
+    local gf="$run_dir/guidance-${t}.md"
+    [[ -f "$gf" && -s "$gf" ]] && echo -e "  ${D}→ ${t}  (${labels[$t]}에 전달)${N}"
+  done
+  echo ""
+}
+
+cmd_inbox() {
+  local sub="${1:-show}"
+  local run_dir
+  run_dir=$(readlink -f "$HARN_DIR/current" 2>/dev/null) || { log_err "No active run."; return 1; }
+
+  case "$sub" in
+    clear)
+      for t in implement evaluate plan context; do
+        > "$run_dir/guidance-${t}.md" 2>/dev/null || true
+      done
+      > "$run_dir/inbox.md" 2>/dev/null || true
+      log_ok "Guidance queue cleared."
+      ;;
+    show|*)
+      local any=0
+      for t in implement evaluate plan context; do
+        local gf="$run_dir/guidance-${t}.md"
+        if [[ -f "$gf" && -s "$gf" ]]; then
+          echo -e "\n  ${W}[${t}]${N}"
+          while IFS= read -r line; do
+            echo -e "  ${D}$line${N}"
+          done < "$gf"
+          any=1
+        fi
+      done
+      local inbox_f="$run_dir/inbox.md"
+      if [[ -f "$inbox_f" && -s "$inbox_f" ]]; then
+        echo -e "\n  ${Y}[inbox — 미분류]${N}"
+        cat "$inbox_f"
+        any=1
+      fi
+      [[ $any -eq 0 ]] && echo -e "  ${D}(대기 중인 메시지 없음)${N}"
+      ;;
+  esac
+}
+
+
 _print_banner() {
   python3 - <<'PYEOF'
 import unicodedata
@@ -1202,6 +1503,42 @@ invoke_copilot() {
 
 invoke_role() {
   local role_key="$1" prompt_input="$2" output_file="$3" role_label="$4" prompt_mode="${5:-inline}" model="${6:-}" role_detail="${7:-$role_key}"
+
+  # Determine guidance type for this role
+  local guidance_type
+  case "$role_detail" in
+    planner*)            guidance_type="plan"      ;;
+    generator_contract)  guidance_type="implement"  ;;
+    generator_impl)      guidance_type="implement"  ;;
+    evaluator*)          guidance_type="evaluate"   ;;
+    *)                   guidance_type="implement"  ;;
+  esac
+
+  # Inject any pending guidance into the prompt
+  if _has_guidance "$guidance_type"; then
+    local guidance_block; guidance_block=$(_inject_guidance "$guidance_type")
+    if [[ -n "$guidance_block" ]]; then
+      if [[ "$prompt_mode" == "file" ]]; then
+        local tmp_guided; tmp_guided=$(mktemp)
+        printf '%s\n\n' "$guidance_block" > "$tmp_guided"
+        cat "$prompt_input" >> "$tmp_guided"
+        prompt_input="$tmp_guided"
+        prompt_mode="file"
+      else
+        prompt_input="${guidance_block}"$'\n\n'"${prompt_input}"
+      fi
+      log_info "💬 사용자 지시사항 포함됨"
+    fi
+  fi
+
+  # Start guidance listener (bottom input bar)
+  local inbox_file=""
+  local run_id; run_id=$(current_run_id)
+  if [[ -n "$run_id" ]]; then
+    inbox_file="$HARN_DIR/runs/$run_id/inbox.md"
+    _start_guidance_listener "$inbox_file"
+  fi
+
   # Determine backend for this specific role
   local backend
   case "$role_detail" in
@@ -1214,13 +1551,13 @@ invoke_role() {
   [[ -z "$backend" ]] && backend=$(_detect_ai_cli)
   [[ -z "$backend" ]] && backend="copilot"
 
+  local exit_code=0
   case "$backend" in
     claude)
       local prompt_text="$prompt_input"
       [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
       local label="claude"; [[ -n "$model" ]] && label="claude ($model)"
       log_agent_start "$label" "$role_label" "output → $(basename "$output_file")"
-      local exit_code=0
       local -a claude_cmd=(claude -p "$prompt_text")
       [[ -n "$model" ]] && claude_cmd+=(--model "$model")
       "${claude_cmd[@]}" 2>&1 \
@@ -1229,14 +1566,22 @@ invoke_role() {
         | _md_stream || exit_code=${PIPESTATUS[0]}
       [[ $exit_code -ne 0 ]] && log_warn "claude exited abnormally (exit $exit_code)"
       log_agent_done "$label"
-      return $exit_code
       ;;
     copilot|*)
       local copilot_effort=""
       [[ "$role_key" == "generator" ]] && copilot_effort="high"
       invoke_copilot "$prompt_input" "$output_file" "$role_label" "$prompt_mode" "$model" "$copilot_effort"
+      exit_code=$?
       ;;
   esac
+
+  # Stop listener and process any received messages
+  _stop_guidance_listener "$GUIDANCE_LISTENER_PID"
+  if [[ -n "$inbox_file" && -f "$inbox_file" && -s "$inbox_file" ]]; then
+    _process_inbox "$inbox_file"
+  fi
+
+  return $exit_code
 }
 
 # ── Commands ───────────────────────────────────────────────────────────────────
@@ -3452,6 +3797,7 @@ case "${1:-help}" in
   next)      cmd_next "${2:-}" ;;
   stop)      cmd_stop ;;
   config)    cmd_config "${2:-show}" "${3:-}" "${4:-}" ;;
+  inbox)     cmd_inbox "${2:-show}" ;;
   base)      cmd_base "${2:-}" ;;
   backlog)   cmd_backlog ;;
   status)    cmd_status ;;
