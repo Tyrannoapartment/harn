@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.3.5"
+HARN_VERSION="1.3.6"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -1325,56 +1325,62 @@ cmd_init() {
     "ko:한국어" \
     "" "" "" \
     <<'PYEOF'
-import sys, os, tty, termios, select
+import sys, os, tty, termios
 
-prompt   = sys.argv[1]
 options  = [a for a in sys.argv[2:] if a]  # filter empty sentinel args
 labels   = [o.split(":",1)[1] for o in options]
 values   = [o.split(":",1)[0] for o in options]
 selected = 0
+n = len(labels)
 
-def draw(sel):
-    sys.stdout.write("\033[2K\r")
-    for i, lb in enumerate(labels):
-        if i == sel:
-            sys.stdout.write(f"  \033[1;32m❯ {lb}\033[0m\n")
-        else:
-            sys.stdout.write(f"    {lb}\n")
-    sys.stdout.write(f"\033[{len(labels)}A")
-    sys.stdout.flush()
-
-fd = sys.stdin.fileno()
-try:
-    old = termios.tcgetattr(fd)
-except Exception:
-    print(values[0]); sys.exit(0)
-
+fd = open("/dev/tty", "rb+", buffering=0)
+old = termios.tcgetattr(fd)
 tty.setraw(fd)
-try:
-    draw(selected)
-    while True:
-        r, _, _ = select.select([sys.stdin], [], [], 0.1)
-        if not r:
-            continue
-        ch = sys.stdin.read(1)
-        if ch == "\x03":
-            sys.stdout.write("\n" * len(labels))
-            sys.exit(1)
-        if ch == "\r" or ch == "\n":
-            break
-        if ch == "\x1b":
-            ch2 = sys.stdin.read(1)
-            if ch2 == "[":
-                ch3 = sys.stdin.read(1)
-                if ch3 == "A":
-                    selected = (selected - 1) % len(labels)
-                elif ch3 == "B":
-                    selected = (selected + 1) % len(labels)
-        draw(selected)
-finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-sys.stdout.write("\n" * len(labels))
+def render():
+    out = b""
+    for i, lb in enumerate(labels):
+        lb_enc = lb.encode()
+        if i == selected:
+            out += b"  \033[1;32m\xe2\x9d\xaf " + lb_enc + b"\033[0m\r\n"
+        else:
+            out += b"    \033[2m" + lb_enc + b"\033[0m\r\n"
+    return out
+
+try:
+    fd.write(render())
+    fd.write(f"\033[{n}A".encode())
+    fd.flush()
+    while True:
+        fd.write(render())
+        fd.write(f"\033[{n}A".encode())
+        fd.flush()
+        b = fd.read(1)
+        if not b:
+            break
+        byte = b[0]
+        if byte in (13, 10):  # Enter
+            break
+        elif byte == 3:  # Ctrl+C
+            fd.write(f"\033[{n}B\r\n".encode())
+            fd.flush()
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            fd.close()
+            sys.exit(1)
+        elif byte == 27:
+            b2 = fd.read(1)
+            if b2 == b"[":
+                b3 = fd.read(1)
+                if b3 == b"A":
+                    selected = (selected - 1) % n
+                elif b3 == b"B":
+                    selected = (selected + 1) % n
+finally:
+    fd.write(f"\033[{n}B\r\n".encode())
+    fd.flush()
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    fd.close()
+
 print(values[selected])
 PYEOF
   ) || { echo ""; return 0; }
