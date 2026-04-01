@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.0.2"
+HARN_VERSION="1.0.3"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -41,9 +41,14 @@ GIT_AUTO_PR="false"
 GIT_PR_DRAFT="true"
 GIT_AUTO_MERGE="false"
 CUSTOM_PROMPTS_DIR=""
+SPRINT_COUNT=2
+SPRINT_ROLES=""
 
 # Retrospective suppression flag (prevents per-item retro in harn all)
 HARN_SKIP_RETRO="false"
+
+# AI backend (copilot | claude) — set by init, overridable via AI_BACKEND env
+AI_BACKEND=""
 
 # Role-specific model defaults (can be overridden via config or env)
 COPILOT_MODEL_PLANNER="claude-haiku-4.5"
@@ -364,12 +369,14 @@ validate_role_models() {
 }
 
 print_model_config() {
-  echo -e "${W}Harness Role Model Config${N}"
-  echo -e "  planner               : ${W}copilot / $COPILOT_MODEL_PLANNER${N}       (env: HARNESS_COPILOT_MODEL_PLANNER)"
-  echo -e "  generator (contract)  : ${W}copilot / $COPILOT_MODEL_GENERATOR_CONTRACT${N}  (env: HARNESS_COPILOT_MODEL_GENERATOR_CONTRACT)"
-  echo -e "  generator (implement) : ${W}copilot / $COPILOT_MODEL_GENERATOR_IMPL${N}     (env: HARNESS_COPILOT_MODEL_GENERATOR_IMPL)"
-  echo -e "  evaluator (contract)  : ${W}copilot / $COPILOT_MODEL_EVALUATOR_CONTRACT${N}  (env: HARNESS_COPILOT_MODEL_EVALUATOR_CONTRACT)"
-  echo -e "  evaluator (qa)        : ${W}copilot / $COPILOT_MODEL_EVALUATOR_QA${N}       (env: HARNESS_COPILOT_MODEL_EVALUATOR_QA)"
+  local backend; backend=$(_detect_ai_cli)
+  [[ -z "$backend" ]] && backend="(not detected)"
+  echo -e "${W}Harness Role Model Config${N}  [backend: ${W}${backend}${N}]"
+  echo -e "  planner               : ${W}$COPILOT_MODEL_PLANNER${N}       (env: HARNESS_COPILOT_MODEL_PLANNER)"
+  echo -e "  generator (contract)  : ${W}$COPILOT_MODEL_GENERATOR_CONTRACT${N}  (env: HARNESS_COPILOT_MODEL_GENERATOR_CONTRACT)"
+  echo -e "  generator (implement) : ${W}$COPILOT_MODEL_GENERATOR_IMPL${N}     (env: HARNESS_COPILOT_MODEL_GENERATOR_IMPL)"
+  echo -e "  evaluator (contract)  : ${W}$COPILOT_MODEL_EVALUATOR_CONTRACT${N}  (env: HARNESS_COPILOT_MODEL_EVALUATOR_CONTRACT)"
+  echo -e "  evaluator (qa)        : ${W}$COPILOT_MODEL_EVALUATOR_QA${N}       (env: HARNESS_COPILOT_MODEL_EVALUATOR_QA)"
 }
 
 # ── Config loading ──────────────────────────────────────────────────────────────
@@ -393,6 +400,13 @@ load_config() {
   COPILOT_MODEL_EVALUATOR_CONTRACT="${HARNESS_COPILOT_MODEL_EVALUATOR_CONTRACT:-${MODEL_EVALUATOR_CONTRACT:-$COPILOT_MODEL_EVALUATOR_CONTRACT}}"
   COPILOT_MODEL_EVALUATOR_QA="${HARNESS_COPILOT_MODEL_EVALUATOR_QA:-${MODEL_EVALUATOR_QA:-$COPILOT_MODEL_EVALUATOR_QA}}"
 
+  # Apply AI_BACKEND from config (env override takes precedence)
+  AI_BACKEND="${HARNESS_AI_BACKEND:-${AI_BACKEND:-}}"
+
+  # Apply sprint settings from config
+  SPRINT_COUNT="${SPRINT_COUNT:-2}"
+  SPRINT_ROLES="${SPRINT_ROLES:-}"
+
   # Apply custom prompts directory
   if [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]]; then
     local custom_abs="$CUSTOM_PROMPTS_DIR"
@@ -403,11 +417,64 @@ load_config() {
 
 # ── Custom prompt generation ───────────────────────────────────────────────────
 
-# Detect AI CLI and return its name (copilot first, then claude)
+# Detect AI CLI: config/env override → auto-detect
 _detect_ai_cli() {
+  # Explicit override via env or loaded config
+  local backend="${AI_BACKEND:-}"
+  if [[ -n "$backend" ]]; then
+    echo "$backend"; return
+  fi
+  # Auto-detect
   if command -v copilot &>/dev/null; then echo "copilot"
   elif command -v claude &>/dev/null; then echo "claude"
   else echo ""
+  fi
+}
+
+# Check which AI CLIs are installed; print a guidance message if none
+_check_ai_cli_installed() {
+  local has_copilot=false has_claude=false
+  command -v copilot &>/dev/null && has_copilot=true
+  command -v claude   &>/dev/null && has_claude=true
+
+  if [[ "$has_copilot" == "false" && "$has_claude" == "false" ]]; then
+    echo -e "\n${R}✗ No AI CLI found.${N}"
+    echo -e "  harn requires ${W}GitHub Copilot CLI${N} or ${W}Claude CLI${N}.\n"
+    echo -e "  ${W}GitHub Copilot CLI${N} (requires GitHub Copilot subscription)"
+    echo -e "    npm install -g @githubnext/github-copilot-cli"
+    echo -e "    gh auth login && gh copilot --version\n"
+    echo -e "  ${W}Claude CLI${N} (requires Anthropic API key)"
+    echo -e "    npm install -g @anthropic-ai/claude-cli   (or: pip install claude-cli)"
+    echo -e "    export ANTHROPIC_API_KEY=sk-ant-..."
+    echo -e "    claude --version\n"
+    return 1
+  fi
+  return 0
+}
+
+# Interactive AI backend selection; sets AI_BACKEND variable
+_select_ai_backend() {
+  local has_copilot=false has_claude=false
+  command -v copilot &>/dev/null && has_copilot=true
+  command -v claude   &>/dev/null && has_claude=true
+
+  if [[ "$has_copilot" == "true" && "$has_claude" == "true" ]]; then
+    echo -e "\n${W}AI backend${N} — both CLIs detected:"
+    echo -e "  ${W}1${N}) copilot  (GitHub Copilot CLI)"
+    echo -e "  ${W}2${N}) claude   (Anthropic Claude CLI)"
+    printf "Choose [1]: "
+    local choice; choice=$(_input_readline); echo ""
+    if [[ "$choice" == "2" ]]; then
+      AI_BACKEND="claude"
+    else
+      AI_BACKEND="copilot"
+    fi
+  elif [[ "$has_copilot" == "true" ]]; then
+    AI_BACKEND="copilot"
+    echo -e "\n${G}✓${N} Using ${W}copilot${N} (GitHub Copilot CLI detected)"
+  elif [[ "$has_claude" == "true" ]]; then
+    AI_BACKEND="claude"
+    echo -e "\n${G}✓${N} Using ${W}claude${N} (Anthropic Claude CLI detected)"
   fi
 }
 
@@ -520,6 +587,10 @@ cmd_init() {
   local mi_input; mi_input=$(_input_readline); echo ""
   local mi="${mi_input:-5}"
 
+  # ── AI CLI detection ──────────────────────────────────────────────────────────
+  _check_ai_cli_installed || return 1
+  _select_ai_backend
+
   # ── AI model settings ─────────────────────────────────────────────────────────
   echo -e "\n${W}AI model settings${N} (Enter = use default)"
   printf "Planner model         [claude-haiku-4.5]: "
@@ -536,6 +607,39 @@ cmd_init() {
 
   printf "Evaluator model (QA)  [claude-sonnet-4.5]: "
   local meq; meq=$(_input_readline); echo ""; meq="${meq:-claude-sonnet-4.5}"
+
+  # ── Sprint structure ──────────────────────────────────────────────────────────
+  echo -e "\n${W}Sprint structure${N}"
+  printf "Number of sprints [2]: "
+  local sc_input; sc_input=$(_input_readline); echo ""
+  local sc="${sc_input:-2}"
+
+  # Validate: must be a positive integer
+  if ! [[ "$sc" =~ ^[1-9][0-9]*$ ]]; then
+    log_warn "Invalid sprint count '$sc' — defaulting to 2"
+    sc=2
+  fi
+
+  # If not default 2, ask what each sprint should do
+  local sprint_roles_arr=()
+  if [[ "$sc" -ne 2 ]]; then
+    echo -e "  ${D}Describe the goal/role of each sprint (Enter = use default label)${N}"
+    for ((i=1; i<=sc; i++)); do
+      local padded; padded=$(printf "%03d" "$i")
+      printf "  Sprint %s role: " "$padded"
+      local sr; sr=$(_input_readline); echo ""
+      sprint_roles_arr+=("Sprint ${padded}: ${sr:-Sprint ${padded} implementation}")
+    done
+  else
+    sprint_roles_arr=(
+      "Sprint 001: Complete feature implementation (all layers at once)"
+      "Sprint 002: Full test suite for Sprint 001"
+    )
+  fi
+  # Join with | delimiter for storage
+  local sprint_roles_str
+  sprint_roles_str=$(printf "%s|" "${sprint_roles_arr[@]}")
+  sprint_roles_str="${sprint_roles_str%|}"
 
   # ── Git integration ─────────────────────────────────────────────────────────────
   echo -e "\n${W}Git integration${N}"
@@ -596,6 +700,11 @@ cmd_init() {
 # === Project settings ===
 BACKLOG_FILE="${bf}"
 MAX_ITERATIONS=${mi}
+SPRINT_COUNT=${sc}
+SPRINT_ROLES="${sprint_roles_str}"
+
+# === AI backend ===
+AI_BACKEND="${AI_BACKEND}"
 
 # === AI model settings ===
 MODEL_PLANNER="${mp}"
@@ -900,10 +1009,32 @@ invoke_copilot() {
 }
 
 invoke_role() {
-  local role_key="$1" prompt_input="$2" output_file="$3" role_label="$4" prompt_mode="${5:-inline}" copilot_model="${6:-}"
-  local copilot_effort=""
-  [[ "$role_key" == "generator" ]] && copilot_effort="high"
-  invoke_copilot "$prompt_input" "$output_file" "$role_label" "$prompt_mode" "$copilot_model" "$copilot_effort"
+  local role_key="$1" prompt_input="$2" output_file="$3" role_label="$4" prompt_mode="${5:-inline}" model="${6:-}"
+  local backend; backend=$(_detect_ai_cli)
+
+  case "$backend" in
+    claude)
+      local prompt_text="$prompt_input"
+      [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
+      local label="claude"; [[ -n "$model" ]] && label="claude ($model)"
+      log_agent_start "$label" "$role_label" "output → $(basename "$output_file")"
+      local exit_code=0
+      local -a claude_cmd=(claude -p "$prompt_text")
+      [[ -n "$model" ]] && claude_cmd+=(--model "$model")
+      "${claude_cmd[@]}" 2>&1 \
+        | tee "$output_file" \
+        | tee -a "$LOG_FILE" \
+        | _md_stream || exit_code=${PIPESTATUS[0]}
+      [[ $exit_code -ne 0 ]] && log_warn "claude exited abnormally (exit $exit_code)"
+      log_agent_done "$label"
+      return $exit_code
+      ;;
+    copilot|*)
+      local copilot_effort=""
+      [[ "$role_key" == "generator" ]] && copilot_effort="high"
+      invoke_copilot "$prompt_input" "$output_file" "$role_label" "$prompt_mode" "$model" "$copilot_effort"
+      ;;
+  esac
 }
 
 # ── Commands ───────────────────────────────────────────────────────────────────
@@ -1068,7 +1199,23 @@ $slug_or_prompt"
   fi
 
   local prompt
+  # Build sprint structure instruction block from config
+  local sprint_instruction
+  if [[ -n "${SPRINT_ROLES:-}" ]]; then
+    sprint_instruction="## Sprint Structure (configured — follow exactly)\n\nProduce exactly ${SPRINT_COUNT} sprint(s):\n"
+    IFS='|' read -ra roles_arr <<< "$SPRINT_ROLES"
+    for role_line in "${roles_arr[@]}"; do
+      sprint_instruction+="- ${role_line}\n"
+    done
+  else
+    sprint_instruction="## Sprint Structure\n\nProduce exactly 2 sprints:\n- Sprint 001: Complete feature implementation (all layers at once)\n- Sprint 002: Full test suite for Sprint 001\n"
+  fi
+
   prompt="$(cat "$PROMPTS_DIR/planner.md")
+
+---
+
+$(printf '%b' "$sprint_instruction")
 
 ---
 
