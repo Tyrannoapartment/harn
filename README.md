@@ -184,17 +184,17 @@ backlog item → Done  +  git commit
 Override at runtime:
 
 ```bash
-HARNESS_COPILOT_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start
+HARN_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start
 ```
 
 ---
 
-## Configuration (.harness_config)
+## Configuration (.harn_config)
 
 Auto-generated on first run or `harn init`.
 
 ```bash
-# .harness_config
+# .harn_config
 
 BACKLOG_FILE="docs/planner/sprint-backlog.md"
 MAX_ITERATIONS=5
@@ -231,7 +231,7 @@ harn config set E2E_COMMAND "docker-compose up -d && sleep 5"
 
 ## Project Context
 
-Place a context file at `.harness/context.md` in your project. All agents read it automatically.
+Place a context file at `.harn/context.md` in your project. All agents read it automatically.
 
 ```markdown
 ## Project Overview
@@ -254,10 +254,10 @@ Place a context file at `.harness/context.md` in your project. All agents read i
 Place `planner.md`, `generator.md`, `evaluator.md` in `CUSTOM_PROMPTS_DIR` to override built-in prompts.
 
 ```bash
-mkdir -p .harness/prompts
-cp ~/.local/share/harn/prompts/generator.md .harness/prompts/
+mkdir -p .harn/prompts
+cp ~/.local/share/harn/prompts/generator.md .harn/prompts/
 # edit, then:
-harn config set CUSTOM_PROMPTS_DIR ".harness/prompts"
+harn config set CUSTOM_PROMPTS_DIR ".harn/prompts"
 # or regenerate from HINT_* values in config:
 harn config regen
 ```

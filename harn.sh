@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.1.0"
+HARN_VERSION="1.1.1"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -23,9 +23,17 @@ while [[ -L "$_THIS" ]]; do
 done
 SCRIPT_DIR="$(cd "$(dirname "$_THIS")" && pwd)"
 ROOT_DIR="$(pwd)"
-HARNESS_DIR="$ROOT_DIR/.harness"
+HARN_DIR="$ROOT_DIR/.harn"
 PROMPTS_DIR="$SCRIPT_DIR/prompts"
-CONFIG_FILE="$ROOT_DIR/.harness_config"
+CONFIG_FILE="$ROOT_DIR/.harn_config"
+
+# ── Backward-compat migration: .harness/ → .harn/ ─────────────────────────────
+if [[ ! -d "$HARN_DIR" && -d "$ROOT_DIR/.harness" ]]; then
+  mv "$ROOT_DIR/.harness" "$HARN_DIR" 2>/dev/null || true
+fi
+if [[ ! -f "$CONFIG_FILE" && -f "$ROOT_DIR/.harness_config" ]]; then
+  mv "$ROOT_DIR/.harness_config" "$CONFIG_FILE" 2>/dev/null || true
+fi
 
 # Defaults (before config is loaded)
 BACKLOG_FILE="$ROOT_DIR/sprint-backlog.md"
@@ -68,8 +76,8 @@ COPILOT_MODEL_EVALUATOR_CONTRACT="claude-haiku-4.5"
 COPILOT_MODEL_EVALUATOR_QA="claude-sonnet-4.5"
 
 # ── Log setup ──────────────────────────────────────────────────────────────────
-mkdir -p "$HARNESS_DIR"
-LOG_FILE="$HARNESS_DIR/harness.log"
+mkdir -p "$HARN_DIR"
+LOG_FILE="$HARN_DIR/harn.log"
 
 # ── Colors & styles ────────────────────────────────────────────────────────────
 R=$'\033[0;31m'   # red
@@ -455,12 +463,12 @@ validate_role_models() {
 print_model_config() {
   local backend; backend=$(_detect_ai_cli)
   [[ -z "$backend" ]] && backend="(not detected)"
-  echo -e "${W}Harness Role Model Config${N}  [backend: ${W}${backend}${N}]"
-  echo -e "  planner               : ${W}$COPILOT_MODEL_PLANNER${N}       (env: HARNESS_COPILOT_MODEL_PLANNER)"
-  echo -e "  generator (contract)  : ${W}$COPILOT_MODEL_GENERATOR_CONTRACT${N}  (env: HARNESS_COPILOT_MODEL_GENERATOR_CONTRACT)"
-  echo -e "  generator (implement) : ${W}$COPILOT_MODEL_GENERATOR_IMPL${N}     (env: HARNESS_COPILOT_MODEL_GENERATOR_IMPL)"
-  echo -e "  evaluator (contract)  : ${W}$COPILOT_MODEL_EVALUATOR_CONTRACT${N}  (env: HARNESS_COPILOT_MODEL_EVALUATOR_CONTRACT)"
-  echo -e "  evaluator (qa)        : ${W}$COPILOT_MODEL_EVALUATOR_QA${N}       (env: HARNESS_COPILOT_MODEL_EVALUATOR_QA)"
+  echo -e "${W}harn Role Model Config${N}  [backend: ${W}${backend}${N}]"
+  echo -e "  planner               : ${W}$COPILOT_MODEL_PLANNER${N}       (env: HARN_MODEL_PLANNER)"
+  echo -e "  generator (contract)  : ${W}$COPILOT_MODEL_GENERATOR_CONTRACT${N}  (env: HARN_MODEL_GENERATOR_CONTRACT)"
+  echo -e "  generator (implement) : ${W}$COPILOT_MODEL_GENERATOR_IMPL${N}     (env: HARN_MODEL_GENERATOR_IMPL)"
+  echo -e "  evaluator (contract)  : ${W}$COPILOT_MODEL_EVALUATOR_CONTRACT${N}  (env: HARN_MODEL_EVALUATOR_CONTRACT)"
+  echo -e "  evaluator (qa)        : ${W}$COPILOT_MODEL_EVALUATOR_QA${N}       (env: HARN_MODEL_EVALUATOR_QA)"
 }
 
 # ── Config loading ──────────────────────────────────────────────────────────────
@@ -478,14 +486,14 @@ load_config() {
   BACKLOG_FILE_DISPLAY="$BACKLOG_FILE"
 
   # Apply MODEL_* vars from config → internal COPILOT_MODEL_* (env override takes precedence)
-  COPILOT_MODEL_PLANNER="${HARNESS_COPILOT_MODEL_PLANNER:-${MODEL_PLANNER:-$COPILOT_MODEL_PLANNER}}"
-  COPILOT_MODEL_GENERATOR_CONTRACT="${HARNESS_COPILOT_MODEL_GENERATOR_CONTRACT:-${MODEL_GENERATOR_CONTRACT:-$COPILOT_MODEL_GENERATOR_CONTRACT}}"
-  COPILOT_MODEL_GENERATOR_IMPL="${HARNESS_COPILOT_MODEL_GENERATOR_IMPL:-${MODEL_GENERATOR_IMPL:-$COPILOT_MODEL_GENERATOR_IMPL}}"
-  COPILOT_MODEL_EVALUATOR_CONTRACT="${HARNESS_COPILOT_MODEL_EVALUATOR_CONTRACT:-${MODEL_EVALUATOR_CONTRACT:-$COPILOT_MODEL_EVALUATOR_CONTRACT}}"
-  COPILOT_MODEL_EVALUATOR_QA="${HARNESS_COPILOT_MODEL_EVALUATOR_QA:-${MODEL_EVALUATOR_QA:-$COPILOT_MODEL_EVALUATOR_QA}}"
+  COPILOT_MODEL_PLANNER="${HARN_MODEL_PLANNER:-${MODEL_PLANNER:-$COPILOT_MODEL_PLANNER}}"
+  COPILOT_MODEL_GENERATOR_CONTRACT="${HARN_MODEL_GENERATOR_CONTRACT:-${MODEL_GENERATOR_CONTRACT:-$COPILOT_MODEL_GENERATOR_CONTRACT}}"
+  COPILOT_MODEL_GENERATOR_IMPL="${HARN_MODEL_GENERATOR_IMPL:-${MODEL_GENERATOR_IMPL:-$COPILOT_MODEL_GENERATOR_IMPL}}"
+  COPILOT_MODEL_EVALUATOR_CONTRACT="${HARN_MODEL_EVALUATOR_CONTRACT:-${MODEL_EVALUATOR_CONTRACT:-$COPILOT_MODEL_EVALUATOR_CONTRACT}}"
+  COPILOT_MODEL_EVALUATOR_QA="${HARN_MODEL_EVALUATOR_QA:-${MODEL_EVALUATOR_QA:-$COPILOT_MODEL_EVALUATOR_QA}}"
 
   # Apply AI_BACKEND from config (env override takes precedence)
-  AI_BACKEND="${HARNESS_AI_BACKEND:-${AI_BACKEND:-}}"
+  AI_BACKEND="${HARN_AI_BACKEND:-${AI_BACKEND:-}}"
 
   # Per-role backend overrides (fall back to global AI_BACKEND)
   AI_BACKEND_PLANNER="${AI_BACKEND_PLANNER:-$AI_BACKEND}"
@@ -627,7 +635,7 @@ _ai_generate() {
 # Generate custom prompt files based on per-agent instructions + Git guidelines
 _generate_custom_prompts() {
   local hint_planner="$1" hint_generator="$2" hint_evaluator="$3" git_guide="$4"
-  local custom_dir="$ROOT_DIR/.harness/prompts"
+  local custom_dir="$ROOT_DIR/.harn/prompts"
   mkdir -p "$custom_dir"
 
   local ai_cmd
@@ -900,7 +908,7 @@ CFGEOF
       log_warn "AI CLI not found — adding instructions directly to base prompts."
     fi
     _generate_custom_prompts "$hint_planner" "$hint_generator" "$hint_evaluator" "$git_guide"
-    cpd=".harness/prompts"
+    cpd=".harn/prompts"
     # Update CUSTOM_PROMPTS_DIR in config
     sed -i '' "s|^CUSTOM_PROMPTS_DIR=.*|CUSTOM_PROMPTS_DIR=\"${cpd}\"|" "$CONFIG_FILE"
   fi
@@ -1083,17 +1091,17 @@ PYEOF
 }
 
 # ── Run management ──────────────────────────────────────────────────────────────
-mkdir -p "$HARNESS_DIR/runs"
+mkdir -p "$HARN_DIR/runs"
 
 current_run_id() {
-  [[ -L "$HARNESS_DIR/current" ]] && basename "$(readlink "$HARNESS_DIR/current")" || echo ""
+  [[ -L "$HARN_DIR/current" ]] && basename "$(readlink "$HARN_DIR/current")" || echo ""
 }
 
 require_run_dir() {
   local id
   id=$(current_run_id)
   [[ -z "$id" ]] && { log_err "No active run. Use: harn start"; exit 1; }
-  echo "$HARNESS_DIR/runs/$id"
+  echo "$HARN_DIR/runs/$id"
 }
 
 # Must be called in the current shell, not a subshell
@@ -1101,9 +1109,9 @@ sync_run_log() {
   local id
   id=$(current_run_id)
   [[ -z "$id" ]] && return 0
-  LOG_FILE="$HARNESS_DIR/runs/$id/run.log"
+  LOG_FILE="$HARN_DIR/runs/$id/run.log"
   touch "$LOG_FILE"
-  ln -sfn "$LOG_FILE" "$HARNESS_DIR/current.log"
+  ln -sfn "$LOG_FILE" "$HARN_DIR/current.log"
 }
 
 current_sprint_num() {
@@ -1300,7 +1308,7 @@ cmd_start() {
 
   local run_id
   run_id=$(date +%Y%m%d-%H%M%S)
-  local run_dir="$HARNESS_DIR/runs/$run_id"
+  local run_dir="$HARN_DIR/runs/$run_id"
 
   mkdir -p "$run_dir/sprints"
   echo "$slug_or_prompt" > "$run_dir/prompt.txt"
@@ -1308,7 +1316,7 @@ cmd_start() {
 
   # This run's dedicated log (current.log → symlink to this run's log)
   local run_log="$run_dir/run.log"
-  ln -sfn "$run_log" "$HARNESS_DIR/current.log"
+  ln -sfn "$run_log" "$HARN_DIR/current.log"
   LOG_FILE="$run_log"
 
   {
@@ -1320,7 +1328,7 @@ cmd_start() {
     echo "════════════════════════════════════════════════════════════"
   } | tee -a "$LOG_FILE"
 
-  ln -sfn "$run_dir" "$HARNESS_DIR/current"
+  ln -sfn "$run_dir" "$HARN_DIR/current"
   log_ok "Run created: $run_id  (${W}$slug_or_prompt${N})"
   log_info "View live log: ${W}harn tail${N}  →  $run_log"
 
@@ -1771,7 +1779,7 @@ cmd_evaluate() {
         go test ./... 2>&1 | tail -50 || true
       else
         echo "(tests: no TEST_COMMAND configured — skipped)"
-        echo "Set TEST_COMMAND in .harness_config to enable automated tests"
+        echo "Set TEST_COMMAND in .harn_config to enable automated tests"
       fi
       echo ""
 
@@ -1923,13 +1931,13 @@ PYEOF
 
   # Completion flag (prevents auto resumption)
   touch "$run_dir/completed"
-  rm -f "$HARNESS_DIR/current"
+  rm -f "$HARN_DIR/current"
 
   log_ok "${G}Task fully complete: $slug_or_prompt${N}"
 }
 
 cmd_stop() {
-  local pid_file="$HARNESS_DIR/harness.pid"
+  local pid_file="$HARN_DIR/harn.pid"
 
   if [[ ! -f "$pid_file" ]]; then
     log_warn "No running harness found (PID file missing)"
@@ -2332,14 +2340,14 @@ _run_sprint_loop() {
   # Always update current.log symlink (so tail works on resume too)
   local run_log="$run_dir/run.log"
   touch "$run_log"
-  ln -sfn "$run_log" "$HARNESS_DIR/current.log"
+  ln -sfn "$run_log" "$HARN_DIR/current.log"
   LOG_FILE="$run_log"
 
   # Save PID (so harn stop can find this process)
-  echo "$$" > "$HARNESS_DIR/harness.pid"
-  trap 'rm -f "$HARNESS_DIR/harness.pid"' EXIT
-  trap 'rm -f "$HARNESS_DIR/harness.pid"; log_warn "Harness interrupted by user."; exit 130' INT
-  trap 'rm -f "$HARNESS_DIR/harness.pid"; log_warn "Harness received termination signal."; exit 143' TERM
+  echo "$$" > "$HARN_DIR/harn.pid"
+  trap 'rm -f "$HARN_DIR/harn.pid"' EXIT
+  trap 'rm -f "$HARN_DIR/harn.pid"; log_warn "Harness interrupted by user."; exit 130' INT
+  trap 'rm -f "$HARN_DIR/harn.pid"; log_warn "Harness received termination signal."; exit 143' TERM
 
   log_step "Loop started (up to $max_sprints sprints)"
 
@@ -2410,10 +2418,10 @@ _run_sprint_loop() {
 cmd_discover() {
   log_step "Backlog discovery — codebase analysis"
 
-  mkdir -p "$HARNESS_DIR"
-  LOG_FILE="$HARNESS_DIR/harness.log"
+  mkdir -p "$HARN_DIR"
+  LOG_FILE="$HARN_DIR/harn.log"
 
-  local out_file="$HARNESS_DIR/discovery-$(date +%Y%m%d-%H%M%S).md"
+  local out_file="$HARN_DIR/discovery-$(date +%Y%m%d-%H%M%S).md"
   local current_backlog=""
   [[ -f "$BACKLOG_FILE" ]] && current_backlog=$(cat "$BACKLOG_FILE")
 
@@ -2598,8 +2606,8 @@ Rules:
 
   log_info "AI(${W}${ai_cmd}${N}) generating backlog items..."
 
-  local out_file="$HARNESS_DIR/add-$(date +%Y%m%d-%H%M%S).md"
-  mkdir -p "$HARNESS_DIR"
+  local out_file="$HARN_DIR/add-$(date +%Y%m%d-%H%M%S).md"
+  mkdir -p "$HARN_DIR"
 
   if ! _ai_generate "$ai_cmd" "$prompt" "$out_file"; then
     log_err "AI generation failed"
@@ -2668,7 +2676,7 @@ cmd_auto() {
 
   # 1. Resume in-progress run if present
   if [[ -n "$run_id" ]]; then
-    run_dir="$HARNESS_DIR/runs/$run_id"
+    run_dir="$HARN_DIR/runs/$run_id"
     if [[ ! -f "$run_dir/completed" ]]; then
       local sprint_num sprint cur_status
       sprint_num=$(current_sprint_num "$run_dir")
@@ -2693,7 +2701,7 @@ cmd_auto() {
 
   if [[ -n "$next_slug" ]]; then
     log_info "Starting next backlog item: ${W}$next_slug${N}"
-    rm -f "$HARNESS_DIR/current"   # reset previous run pointer
+    rm -f "$HARN_DIR/current"   # reset previous run pointer
     cmd_start "$next_slug"
     return 0
   fi
@@ -2706,7 +2714,7 @@ cmd_auto() {
   next_slug=$(backlog_next_slug)
   if [[ -n "$next_slug" ]]; then
     log_info "Starting first discovered item: ${W}$next_slug${N}"
-    rm -f "$HARNESS_DIR/current"
+    rm -f "$HARN_DIR/current"
     cmd_start "$next_slug"
   fi
 }
@@ -2753,12 +2761,12 @@ cmd_all() {
     log_step "[$item_num/$total_items] Starting item: ${W}$slug${N}"
 
     # Reset run pointer (so cmd_start creates a new run)
-    rm -f "$HARNESS_DIR/current"
+    rm -f "$HARN_DIR/current"
 
     if cmd_start "$slug"; then
       # Record just-completed run directory
       local finished_run
-      finished_run=$(ls -dt "$HARNESS_DIR/runs/"*/ 2>/dev/null | head -1)
+      finished_run=$(ls -dt "$HARN_DIR/runs/"*/ 2>/dev/null | head -1)
       finished_run="${finished_run%/}"
       [[ -n "$finished_run" ]] && completed_run_dirs+=("$finished_run")
       log_ok "[$item_num/$total_items] Complete: ${W}$slug${N}"
@@ -2804,7 +2812,7 @@ cmd_status() {
     log_warn "No active run. Start with: ${W}harn start${N}"
     return 0
   fi
-  run_dir="$HARNESS_DIR/runs/$run_id"
+  run_dir="$HARN_DIR/runs/$run_id"
   sprint_num=$(current_sprint_num "$run_dir")
 
   echo -e "${W}Run ID:${N}    $run_id"
@@ -2840,7 +2848,7 @@ cmd_config() {
   local sub="${1:-show}"
   case "$sub" in
     show)
-      echo -e "${W}Harness Configuration${N}  (${CONFIG_FILE})"
+      echo -e "${W}harn Configuration${N}  (${CONFIG_FILE})"
       echo -e "  Project:           ${W}$ROOT_DIR${N}"
       echo -e "  Backlog file:      ${W}$BACKLOG_FILE${N}"
       echo -e "  Max retries:       ${W}$MAX_ITERATIONS${N}"
@@ -2864,7 +2872,7 @@ cmd_config() {
       local key="${2:-}" val="${3:-}"
       [[ -z "$key" || -z "$val" ]] && { log_err "Usage: harn config set KEY VALUE"; exit 1; }
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_err "No .harness_config file. Run ${W}harn init${N} first."
+        log_err "No .harn_config file. Run ${W}harn init${N} first."
         exit 1
       fi
       if grep -q "^${key}=" "$CONFIG_FILE"; then
@@ -2876,7 +2884,7 @@ cmd_config() {
       ;;
     regen)
       if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_err ".harness_config file not found. Run ${W}harn init${N} first."
+        log_err ".harn_config file not found. Run ${W}harn init${N} first."
         exit 1
       fi
       local ai_cmd; ai_cmd=$(_detect_ai_cli)
@@ -2893,7 +2901,7 @@ cmd_config() {
       log_step "Regenerating custom prompts"
       log_info "Regenerating prompts with AI CLI (${W}${ai_cmd}${N})..."
       _generate_custom_prompts "$hp" "$hg" "$he" "$gg"
-      local cpd=".harness/prompts"
+      local cpd=".harn/prompts"
       if ! grep -q "^CUSTOM_PROMPTS_DIR=" "$CONFIG_FILE"; then
         echo "CUSTOM_PROMPTS_DIR=\"${cpd}\"" >> "$CONFIG_FILE"
       else
@@ -2913,7 +2921,7 @@ cmd_config() {
 cmd_runs() {
   echo -e "${W}Harness runs:${N}"
   local current_id; current_id=$(current_run_id)
-  for d in "$HARNESS_DIR/runs"/*/; do
+  for d in "$HARN_DIR/runs"/*/; do
     [[ -d "$d" ]] || continue
     local id prompt marker
     id=$(basename "$d")
@@ -2926,23 +2934,23 @@ cmd_runs() {
 cmd_resume() {
   local run_id="${1:-}"
   [[ -z "$run_id" ]] && { log_err "Usage: harn resume <run-id>"; exit 1; }
-  local run_dir="$HARNESS_DIR/runs/$run_id"
+  local run_dir="$HARN_DIR/runs/$run_id"
   [[ ! -d "$run_dir" ]] && { log_err "Run not found: $run_id"; exit 1; }
-  ln -sfn "$run_dir" "$HARNESS_DIR/current"
+  ln -sfn "$run_dir" "$HARN_DIR/current"
   log_ok "Resumed: $run_id"
   cmd_status
 }
 
 cmd_tail() {
-  local log="$HARNESS_DIR/current.log"
+  local log="$HARN_DIR/current.log"
 
   # current.log symlink missing or broken → fall back to most recent run log
   if [[ ! -e "$log" ]]; then
     local latest_log
-    latest_log=$(ls -t "$HARNESS_DIR/runs"/*/run.log 2>/dev/null | head -1)
+    latest_log=$(ls -t "$HARN_DIR/runs"/*/run.log 2>/dev/null | head -1)
     if [[ -n "$latest_log" ]]; then
       log_warn "No current.log — falling back to latest run log: $latest_log"
-      ln -sfn "$latest_log" "$HARNESS_DIR/current.log"
+      ln -sfn "$latest_log" "$HARN_DIR/current.log"
       log="$latest_log"
     else
       log_err "No active log. Start a run first: harn auto"
@@ -2992,7 +3000,7 @@ ${D}  $(pwd)${N}
     stop                  Stop the loop
 
   ${D}Tip: You can inject extra instructions between steps during a loop run.${N}
-  ${D}    HARNESS_COPILOT_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start${N}
+  ${D}    HARN_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start${N}
 
 EOF
 }
@@ -3047,7 +3055,7 @@ case "$_cmd" in
   *)
     if [[ ! -f "$CONFIG_FILE" ]]; then
       _print_banner
-      echo -e "  ${Y}⚠${N}  No ${W}.harness_config${N} found in this directory."
+      echo -e "  ${Y}⚠${N}  No ${W}.harn_config${N} found in this directory."
       echo -e "     Starting initial setup...\n"
       cmd_init
     else
@@ -3127,9 +3135,9 @@ cmd_doctor() {
   echo ""
 
   # ── Harness config ───────────────────────────────────────────────────────────
-  echo -e "${W}▸ Harness Config${N}"
+  echo -e "${W}▸ harn Config${N}"
   if [[ -f "$CONFIG_FILE" ]]; then
-    echo -e "  ${G}✓${N} .harness_config:  found  (${W}$CONFIG_FILE${N})"
+    echo -e "  ${G}✓${N} .harn_config:     found  (${W}$CONFIG_FILE${N})"
     echo -e "  Git integration:  ${W}${GIT_ENABLED:-false}${N}"
     [[ "$GIT_ENABLED" == "true" ]] && {
       echo -e "  Base branch:      ${W}${GIT_BASE_BRANCH:-not set}${N}"
@@ -3138,8 +3146,7 @@ cmd_doctor() {
     echo -e "  Sprint count:     ${W}${SPRINT_COUNT:-2}${N}"
     echo -e "  AI backend:       ${W}${AI_BACKEND:-auto}${N}"
   else
-    echo -e "  ${R}✗${N} .harness_config:  not found"
-    echo -e "    Run: ${W}harn init${N}"
+    echo -e "  ${D}○${N} .harn_config:     not configured  (run ${W}harn init${N} to set up)"
   fi
 
   if [[ -n "${CUSTOM_PROMPTS_DIR:-}" ]]; then
@@ -3160,7 +3167,7 @@ cmd_doctor() {
   echo -e "${W}▸ Active Run${N}"
   local run_id; run_id=$(current_run_id)
   if [[ -n "$run_id" ]]; then
-    local run_dir="$HARNESS_DIR/runs/$run_id"
+    local run_dir="$HARN_DIR/runs/$run_id"
     local slug; slug=$(cat "$run_dir/prompt.txt" 2>/dev/null || echo "unknown")
     local sprint_num; sprint_num=$(current_sprint_num "$run_dir")
     echo -e "  ${G}✓${N} Run:          ${W}${run_id}${N}  (${slug})"
