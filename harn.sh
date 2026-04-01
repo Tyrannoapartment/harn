@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.3.4"
+HARN_VERSION="1.3.5"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -233,6 +233,26 @@ def set_cbreak():
 
 _first_draw = True
 
+def get_cursor_row():
+    """Query terminal for current cursor row via DSR. Returns row (1-based) or None."""
+    try:
+        import re
+        os.write(tfd, b'\033[6n')
+        resp = b''
+        deadline = time.time() + 0.3
+        while time.time() < deadline:
+            r2, _, _ = select.select([tfd], [], [], 0.05)
+            if r2:
+                resp += os.read(tfd, 32)
+                if b'R' in resp:
+                    break
+        m = re.search(rb'\033\[(\d+);(\d+)R', resp)
+        if m:
+            return int(m.group(1))
+    except Exception:
+        pass
+    return None
+
 def draw_bar(buf=''):
     global _first_draw
     rows, cols = get_size()
@@ -252,13 +272,16 @@ def draw_bar(buf=''):
     os.write(tfd, (prompt_str + display).encode())
     # Restore cursor
     os.write(tfd, b'\033[u')
-    # On first draw, clamp cursor into scroll region.
-    # log_agent_start() may have pushed stdout cursor to the very last row
-    # before the scroll region was established; restoring to that position
-    # would cause agent output to overwrite the input bar.
+    # On first draw: if the cursor is outside the scroll region (i.e. in the
+    # protected bottom rows) clamp it to rows-2 so agent output doesn't
+    # overwrite the input bar. We query the actual cursor position first so
+    # we only clamp when necessary — unconditional clamping would scroll the
+    # log_agent_start box off-screen when it was already in the safe area.
     if _first_draw:
         _first_draw = False
-        os.write(tfd, f'\033[{rows-2};1H'.encode())
+        cur_row = get_cursor_row()
+        if cur_row is not None and cur_row >= rows - 1:
+            os.write(tfd, f'\033[{rows-2};1H'.encode())
 
 def on_sigterm(sig, frame):
     restore()
