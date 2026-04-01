@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.5.1"
+HARN_VERSION="1.5.2"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -41,13 +41,6 @@ BACKLOG_FILE_DISPLAY="${BACKLOG_FILE}"
 MAX_ITERATIONS=5
 GIT_ENABLED="false"
 GIT_BASE_BRANCH="main"
-GIT_PR_TARGET_BRANCH="main"
-GIT_PLAN_PREFIX="plan/"
-GIT_FEAT_PREFIX="feat/"
-GIT_AUTO_PUSH="false"
-GIT_AUTO_PR="false"
-GIT_PR_DRAFT="true"
-GIT_AUTO_MERGE="false"
 CUSTOM_PROMPTS_DIR=""
 SPRINT_COUNT=2
 SPRINT_ROLES=""
@@ -923,14 +916,13 @@ _i18n_load() {
     I18N_DOCTOR_NO_BACKEND="AI 백엔드 없음 — harn init 실행 필요"
     I18N_DOCTOR_GIT_SECTION="Git"
     I18N_DOCTOR_GH_AUTH_WARN="인증 안 됨 — gh auth login 실행 필요"
-    I18N_DOCTOR_GH_NOT_FOUND="설치되지 않음 — PR 기능 비활성화"
+    I18N_DOCTOR_GH_NOT_FOUND="설치되지 않음"
     I18N_DOCTOR_PROJECT_REPO="프로젝트 저장소"
     I18N_DOCTOR_CONFIG_SECTION="harn 설정"
     I18N_DOCTOR_CONFIG_FOUND="설정 파일 있음"
     I18N_DOCTOR_CONFIG_NOT_FOUND="설정 안 됨 (harn init 실행 필요)"
     I18N_DOCTOR_GIT_INTEGRATION="Git 통합"
     I18N_DOCTOR_BASE_BRANCH="기본 브랜치"
-    I18N_DOCTOR_PR_TARGET="PR 타겟 브랜치"
     I18N_DOCTOR_SPRINT_COUNT="스프린트 수"
     I18N_DOCTOR_AI_BACKEND="AI 백엔드"
     I18N_DOCTOR_CUSTOM_PROMPTS="커스텀 프롬프트"
@@ -958,13 +950,8 @@ _i18n_load() {
     I18N_INIT_SPRINT_INVALID="잘못된 스프린트 수 '%s' — 기본값 2로 설정"
     I18N_INIT_GIT_SECTION="Git 통합"
     I18N_INIT_GIT_ENABLE_PROMPT="Git 통합을 활성화할까요? [y/N]: "
-    I18N_INIT_GIT_BASE_PROMPT="기본 작업 브랜치 (또는 'current'로 현재 브랜치 사용) [main]: "
-    I18N_INIT_GIT_TARGET_PROMPT="PR 대상 브랜치 (PR이 머지될 브랜치) [%s]: "
-    I18N_INIT_GIT_AUTOPUSH_PROMPT="자동 push? [y/N]: "
-    I18N_INIT_GIT_AUTOPR_PROMPT="자동 PR 생성? [y/N]: "
-    I18N_INIT_GIT_DRAFT_PROMPT="Draft PR로 생성? [Y/n]: "
-    I18N_INIT_GIT_GUIDE_TITLE="Git 워크플로우 가이드라인"
-    I18N_INIT_GIT_GUIDE_HINT="브랜치 전략, 커밋 컨벤션, PR 규칙 등을 입력하세요.\n  에이전트 프롬프트에 반영됩니다. (Enter = 건너뜀)"
+    I18N_INIT_GIT_GUIDE_TITLE="Git 커밋 가이드라인"
+    I18N_INIT_GIT_GUIDE_HINT="커밋 컨벤션 등을 입력하세요.\n  에이전트 프롬프트에 반영됩니다. (Enter = 건너뜀)"
     I18N_INIT_HINTS_TITLE="에이전트별 특별 지시사항"
     I18N_INIT_HINTS_HINT="프로젝트 아키텍처, 기술 스택, 코딩 컨벤션 등을 입력하세요.\n  AI CLI가 기본 프롬프트에 자연스럽게 통합합니다. (Enter = 건너뜀)"
     I18N_INIT_HINT_PLANNER="Planner   — 스펙/스프린트 계획 지시사항: "
@@ -1051,39 +1038,12 @@ _i18n_load() {
     I18N_STOP_RUN_STOPPED="실행 중단됨"
     I18N_STOP_DONE="프로세스 중단됨"
     # git helpers
-    I18N_GIT_NO_HEAD="Git: HEAD를 확인할 수 없음 — 건너뜀"
-    I18N_GIT_CURRENT_BRANCH="Git: 현재 브랜치에서 작업 중 ${W}%s${N} (base=current 모드)"
-    I18N_GIT_CREATING_BRANCH="Git: 플래닝 브랜치 생성 중"
-    I18N_GIT_NO_HEAD_BRANCH="Git: HEAD를 확인할 수 없음 — 브랜치 생성 건너뜀"
-    I18N_GIT_BRANCH_EXISTS="브랜치 ${W}%s${N} 이미 존재 — 체크아웃 중"
-    I18N_GIT_BRANCH_CREATED="브랜치 생성됨: ${W}%s${N}"
     I18N_GIT_BACKLOG_COMMITTED="스프린트 백로그 커밋됨"
     I18N_GIT_BACKLOG_UNCHANGED="백로그 파일 변경 없음 — 커밋 건너뜀"
-    I18N_GIT_PUSH_FAILED_PR="Push 실패 — Draft PR 생성 건너뜀. 수동으로 Push 후 PR을 생성하세요."
-    I18N_GIT_BRANCH_PUSHED="브랜치 Push됨: origin/${W}%s${N}"
-    I18N_GIT_PR_CREATING="Draft PR 생성 중... (base: ${W}%s${N}, head: ${W}%s${N})"
-    I18N_GIT_PR_CREATED="Draft PR 생성됨:"
-    I18N_GIT_PR_FAILED="PR 생성 실패 — 수동으로 생성하세요"
-    I18N_GIT_PR_CREATE_FAILED="gh pr create 실패 — 수동으로 PR을 생성하세요 (%s → %s)"
     I18N_GIT_IMPL_COMMIT="Git: 스프린트 %s 구현 커밋"
     I18N_GIT_NO_CHANGES="커밋할 변경 사항 없음 — 제너레이터가 파일을 수정하지 않았을 수 있습니다"
     I18N_GIT_COMMIT_DONE="커밋 완료: ${W}%s${N}"
-    I18N_GIT_PUSH_DONE="Push 완료: origin/${W}%s${N}"
-    I18N_GIT_PUSH_FAILED="Push 실패 — 실행: git push origin %s"
-    I18N_GIT_NO_HEAD_PUSH="Git: HEAD를 확인할 수 없음 — Push 건너뜀"
-    I18N_GIT_SPRINT_PASS_PUSH="Git: 스프린트 %s 통과 — origin/${W}%s${N}에 Push 중"
-    I18N_GIT_NO_FEAT_BRANCH="Git: 병합할 피처 브랜치를 찾을 수 없음 (현재: %s)"
-    I18N_GIT_FINALIZE="Git 최종화: ${W}%s${N} → ${W}%s${N}"
-    I18N_GIT_AUTO_COMMIT="미커밋 변경 사항 자동 커밋 중..."
-    I18N_GIT_UPDATE_PR="PR 업데이트 중: origin/${W}%s${N} Push 중..."
-    I18N_GIT_PUSH_FAILED_MANUAL="Push 실패 — PR을 수동으로 병합하세요"
-    I18N_GIT_PR_MERGING="PR 병합 중 (non-squash): ${W}%s${N}"
-    I18N_GIT_PR_MERGED="PR 병합 완료: ${W}%s${N} → ${W}%s${N}"
-    I18N_GIT_PR_MERGE_FAILED="gh pr merge 실패 — GitHub에서 수동으로 병합 후 계속하세요"
-    I18N_GIT_RETURN_BASE="기본 브랜치로 돌아가는 중: ${W}%s${N}"
-    I18N_GIT_PULLING="Pull 중: origin/${W}%s${N}..."
-    I18N_GIT_PULL_DONE="Pull 완료: origin/${W}%s${N}"
-    I18N_GIT_PULL_FAILED="Pull 실패 — 실행: git pull origin %s"
+    I18N_GIT_FINAL_COMMIT="Git: 최종 커밋"
     # cmd_retrospective
     I18N_RETRO_NO_CLI="AI CLI 없음 — 회고 건너뜀"
     I18N_RETRO_STEP="회고"
@@ -1160,9 +1120,6 @@ _i18n_load() {
     I18N_CONFIG_MAX_RETRIES_KEY="  최대 재시도:        "
     I18N_CONFIG_GIT_KEY="  Git 통합:           "
     I18N_CONFIG_BASE_BRANCH_KEY="  기본 작업 브랜치:   "
-    I18N_CONFIG_PR_TARGET_KEY="  PR 타겟 브랜치:     "
-    I18N_CONFIG_AUTO_PUSH_KEY="  자동 Push:          "
-    I18N_CONFIG_AUTO_PR_KEY="  자동 PR:            "
     I18N_CONFIG_AI_MODELS="AI 모델"
     I18N_CONFIG_CUSTOM_PROMPTS_KEY="  커스텀 프롬프트:    "
     I18N_CONFIG_NO_FILE=".harn_config 파일이 없습니다. ${W}harn init${N}을 먼저 실행하세요."
@@ -1249,14 +1206,13 @@ _i18n_load() {
     I18N_DOCTOR_NO_BACKEND="No AI backend available — run: harn init"
     I18N_DOCTOR_GIT_SECTION="Git"
     I18N_DOCTOR_GH_AUTH_WARN="not authenticated — run: gh auth login"
-    I18N_DOCTOR_GH_NOT_FOUND="not found — PR features disabled"
+    I18N_DOCTOR_GH_NOT_FOUND="not found"
     I18N_DOCTOR_PROJECT_REPO="Project repo"
     I18N_DOCTOR_CONFIG_SECTION="harn Config"
     I18N_DOCTOR_CONFIG_FOUND="found"
     I18N_DOCTOR_CONFIG_NOT_FOUND="not configured  (run harn init to set up)"
     I18N_DOCTOR_GIT_INTEGRATION="Git integration"
     I18N_DOCTOR_BASE_BRANCH="Base branch"
-    I18N_DOCTOR_PR_TARGET="PR target branch"
     I18N_DOCTOR_SPRINT_COUNT="Sprint count"
     I18N_DOCTOR_AI_BACKEND="AI backend"
     I18N_DOCTOR_CUSTOM_PROMPTS="Custom prompts"
@@ -1284,13 +1240,8 @@ _i18n_load() {
     I18N_INIT_SPRINT_INVALID="Invalid sprint count '%s' — defaulting to 2"
     I18N_INIT_GIT_SECTION="Git integration"
     I18N_INIT_GIT_ENABLE_PROMPT="Enable Git integration? [y/N]: "
-    I18N_INIT_GIT_BASE_PROMPT="Base working branch (branch off from, or 'current' to always use active branch) [main]: "
-    I18N_INIT_GIT_TARGET_PROMPT="PR target branch (where PRs are merged into) [%s]: "
-    I18N_INIT_GIT_AUTOPUSH_PROMPT="Auto push? [y/N]: "
-    I18N_INIT_GIT_AUTOPR_PROMPT="Auto PR creation? [y/N]: "
-    I18N_INIT_GIT_DRAFT_PROMPT="Create PR as Draft? [Y/n]: "
-    I18N_INIT_GIT_GUIDE_TITLE="Git workflow guidelines"
-    I18N_INIT_GIT_GUIDE_HINT="Enter branching strategy, commit conventions, PR rules, etc.\n  These guidelines will be reflected in all agent prompts. (Enter = skip)"
+    I18N_INIT_GIT_GUIDE_TITLE="Git commit guidelines"
+    I18N_INIT_GIT_GUIDE_HINT="Enter commit conventions, etc.\n  These guidelines will be reflected in all agent prompts. (Enter = skip)"
     I18N_INIT_HINTS_TITLE="Per-agent special instructions"
     I18N_INIT_HINTS_HINT="Enter project architecture, tech stack, coding conventions, etc.\n  The AI CLI will naturally integrate these into the base prompts. (Enter = skip)"
     I18N_INIT_HINT_PLANNER="Planner   — spec/sprint planning instructions: "
@@ -1377,39 +1328,12 @@ _i18n_load() {
     I18N_STOP_RUN_STOPPED="Run stopped"
     I18N_STOP_DONE="Harness stopped"
     # git helpers
-    I18N_GIT_NO_HEAD="Git: Cannot determine HEAD — skipping"
-    I18N_GIT_CURRENT_BRANCH="Git: Working on current branch ${W}%s${N} (base=current mode)"
-    I18N_GIT_CREATING_BRANCH="Git: Creating planning branch"
-    I18N_GIT_NO_HEAD_BRANCH="Git: Cannot determine HEAD — skipping branch creation"
-    I18N_GIT_BRANCH_EXISTS="Branch ${W}%s${N} already exists — checking out"
-    I18N_GIT_BRANCH_CREATED="Branch created: ${W}%s${N}"
     I18N_GIT_BACKLOG_COMMITTED="Sprint backlog committed"
     I18N_GIT_BACKLOG_UNCHANGED="Backlog file unchanged — skipping commit"
-    I18N_GIT_PUSH_FAILED_PR="Push failed — skipping Draft PR creation. Push manually and create a PR."
-    I18N_GIT_BRANCH_PUSHED="Branch pushed: origin/${W}%s${N}"
-    I18N_GIT_PR_CREATING="Creating Draft PR... (base: ${W}%s${N}, head: ${W}%s${N})"
-    I18N_GIT_PR_CREATED="Draft PR created:"
-    I18N_GIT_PR_FAILED="PR creation failed — create it manually"
-    I18N_GIT_PR_CREATE_FAILED="gh pr create failed — create PR manually (%s → %s)"
     I18N_GIT_IMPL_COMMIT="Git: Sprint %s implementation commit"
     I18N_GIT_NO_CHANGES="No changes to commit — generator may not have modified any files"
     I18N_GIT_COMMIT_DONE="Commit done: ${W}%s${N}"
-    I18N_GIT_PUSH_DONE="Push done: origin/${W}%s${N}"
-    I18N_GIT_PUSH_FAILED="Push failed — run: git push origin %s"
-    I18N_GIT_NO_HEAD_PUSH="Git: Cannot determine HEAD — skipping push"
-    I18N_GIT_SPRINT_PASS_PUSH="Git: Sprint %s passed — pushing to origin/${W}%s${N}"
-    I18N_GIT_NO_FEAT_BRANCH="Git: Cannot identify feature branch to merge (current: %s)"
-    I18N_GIT_FINALIZE="Git finalize: ${W}%s${N} → ${W}%s${N}"
-    I18N_GIT_AUTO_COMMIT="Auto-committing uncommitted changes..."
-    I18N_GIT_UPDATE_PR="Updating PR: pushing origin/${W}%s${N}..."
-    I18N_GIT_PUSH_FAILED_MANUAL="Push failed — merge the PR manually"
-    I18N_GIT_PR_MERGING="Merging PR (not squash): ${W}%s${N}"
-    I18N_GIT_PR_MERGED="PR merge complete: ${W}%s${N} → ${W}%s${N}"
-    I18N_GIT_PR_MERGE_FAILED="gh pr merge failed — merge the PR on GitHub manually and then continue"
-    I18N_GIT_RETURN_BASE="Returning to base branch: ${W}%s${N}"
-    I18N_GIT_PULLING="Pulling origin/${W}%s${N}..."
-    I18N_GIT_PULL_DONE="Pull complete: origin/${W}%s${N}"
-    I18N_GIT_PULL_FAILED="Pull failed — run: git pull origin %s"
+    I18N_GIT_FINAL_COMMIT="Git: final commit"
     # cmd_retrospective
     I18N_RETRO_NO_CLI="No AI CLI — skipping retrospective"
     I18N_RETRO_STEP="Retrospective"
@@ -1486,9 +1410,6 @@ _i18n_load() {
     I18N_CONFIG_MAX_RETRIES_KEY="  Max retries:       "
     I18N_CONFIG_GIT_KEY="  Git integration:   "
     I18N_CONFIG_BASE_BRANCH_KEY="  Base working branch: "
-    I18N_CONFIG_PR_TARGET_KEY="  PR target branch:  "
-    I18N_CONFIG_AUTO_PUSH_KEY="  Auto push:         "
-    I18N_CONFIG_AUTO_PR_KEY="  Auto PR:           "
     I18N_CONFIG_AI_MODELS="AI Models"
     I18N_CONFIG_CUSTOM_PROMPTS_KEY="  Custom prompts:    "
     I18N_CONFIG_NO_FILE="No .harn_config file. Run ${W}harn init${N} first."
@@ -2007,29 +1928,10 @@ PYEOF
   printf "%s" "$I18N_INIT_GIT_ENABLE_PROMPT"
   local git_yn; git_yn=$(_input_readline); echo ""
   local git_en="false"
-  local git_branch="main" git_pr_target="main" git_auto_push="false" git_auto_pr="false" git_pr_draft="true" git_guide=""
+  local git_branch="main" git_guide=""
 
   if [[ "$git_yn" == "y" || "$git_yn" == "Y" ]]; then
     git_en="true"
-    printf "%s" "$I18N_INIT_GIT_BASE_PROMPT"
-    local gb; gb=$(_input_readline); echo ""; git_branch="${gb:-main}"
-
-    printf "$I18N_INIT_GIT_TARGET_PROMPT" "$git_branch"
-    local gpt; gpt=$(_input_readline); echo ""; git_pr_target="${gpt:-$git_branch}"
-
-    printf "%s" "$I18N_INIT_GIT_AUTOPUSH_PROMPT"
-    local gp; gp=$(_input_readline); echo ""
-    [[ "$gp" == "y" || "$gp" == "Y" ]] && git_auto_push="true"
-
-    printf "%s" "$I18N_INIT_GIT_AUTOPR_PROMPT"
-    local gpr; gpr=$(_input_readline); echo ""
-    [[ "$gpr" == "y" || "$gpr" == "Y" ]] && git_auto_pr="true"
-
-    if [[ "$git_auto_pr" == "true" ]]; then
-      printf "%s" "$I18N_INIT_GIT_DRAFT_PROMPT"
-      local gprd; gprd=$(_input_readline); echo ""
-      [[ "$gprd" == "n" || "$gprd" == "N" ]] && git_pr_draft="false"
-    fi
 
     echo -e "\n${B}${I18N_INIT_GIT_GUIDE_TITLE}${N}"
     echo -e "  ${I18N_INIT_GIT_GUIDE_HINT}"
@@ -2080,14 +1982,6 @@ MODEL_EVALUATOR_QA="${meq}"
 
 # === Git integration ===
 GIT_ENABLED="${git_en}"
-GIT_BASE_BRANCH="${git_branch}"
-GIT_PR_TARGET_BRANCH="${git_pr_target}"
-GIT_PLAN_PREFIX="plan/"
-GIT_FEAT_PREFIX="feat/"
-GIT_AUTO_PUSH="${git_auto_push}"
-GIT_AUTO_PR="${git_auto_pr}"
-GIT_PR_DRAFT="${git_pr_draft}"
-GIT_AUTO_MERGE="false"
 
 # === Agent instructions (regenerate with harn init) ===
 GIT_GUIDE="${git_guide}"
@@ -2775,9 +2669,9 @@ PYEOF
 
   fi
 
-  # Create Git branch, commit backlog, create Draft PR
+  # Commit backlog file if git is enabled
   if [[ -f "$BACKLOG_FILE" ]] && [[ "$slug_or_prompt" != *" "* ]]; then
-    _git_setup_plan_branch "$slug_or_prompt" "$run_dir" "$plan_text"
+    _git_plan_commit "$slug_or_prompt"
   fi
 
   log_ok "$I18N_PLAN_COMPLETE"
@@ -3120,7 +3014,6 @@ Write exactly one line at the end of the report:
   if grep -qiE 'VERDICT[[:space:]]*:[[:space:]]*PASS' "$sprint/qa-report.md"; then
     echo "pass" > "$sprint/status"
     log_ok "$(printf "$I18N_EVAL_PASS" "$sprint_num")"
-    _git_push_sprint_pass "$sprint_num"
     log_info "$I18N_EVAL_NEXT"
   else
     echo "fail" > "$sprint/status"
@@ -3253,144 +3146,26 @@ cmd_stop() {
   fi
 }
 
-# Convert Git remote URL to owner/repo format
-# e.g.) https://github.com/org/repo.git  →  org/repo
-#       git@github.com:org/repo.git      →  org/repo
-_git_url_to_nwo() {
-  local url="$1"
-  echo "$url" \
-    | sed 's|\.git$||' \
-    | sed 's|^https://[^/]*/||' \
-    | sed 's|^git@[^:]*:||'
-}
+# ── Git helpers (commit-only) ─────────────────────────────────────────────────
 
-# ── Git planning branch creation & Draft PR ──────────────────────────────────
-# Called after cmd_plan: create branch → commit backlog → create Draft PR
-_resolve_base_branch() {
-  # If GIT_BASE_BRANCH is "current", resolve to actual current branch
-  if [[ "${GIT_BASE_BRANCH:-}" == "current" ]]; then
-    git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main"
-  else
-    echo "${GIT_BASE_BRANCH:-main}"
-  fi
-}
-
-_git_setup_plan_branch() {
+# Called after cmd_plan: commit backlog file
+_git_plan_commit() {
   [[ "$GIT_ENABLED" != "true" ]] && return 0
-
-  local slug="$1" run_dir="$2" plan_text="$3"
-  local pr_target="${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}"
-  local base_branch; base_branch=$(_resolve_base_branch)
-
-  # In "current" mode: stay on current branch, no new branch creation
-  if [[ "${GIT_BASE_BRANCH:-}" == "current" ]]; then
-    local cur_branch; cur_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    if [[ -z "$cur_branch" || "$cur_branch" == "HEAD" ]]; then
-      log_warn "$I18N_GIT_NO_HEAD"
-      return 0
-    fi
-    log_step "$(printf "$I18N_GIT_CURRENT_BRANCH" "$cur_branch")"
-    # Still commit backlog file if changed
-    if [[ -f "$BACKLOG_FILE" ]]; then
-      git -C "$ROOT_DIR" add "$BACKLOG_FILE"
-      if ! git -C "$ROOT_DIR" diff --cached --quiet 2>/dev/null; then
-        git -C "$ROOT_DIR" commit -m "plan: ${slug} — planning started" \
-          2>&1 | while IFS= read -r line; do log_info "$line"; done
-      fi
-    fi
-    # Push current branch
-    git -C "$ROOT_DIR" push -u origin "$cur_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done || true
-    # Create Draft PR to pr_target if different from current branch
-    if [[ "$cur_branch" != "$pr_target" ]] && command -v gh &>/dev/null; then
-      local pr_title="[Plan] ${slug}: ${plan_text}"
-      local pr_body; pr_body=$(cat "$run_dir/spec.md" 2>/dev/null || echo "$plan_text")
-      local draft_flag="--draft"; [[ "$GIT_PR_DRAFT" == "false" ]] && draft_flag=""
-      local pr_url
-      if pr_url=$(gh pr create \
-        --base "$pr_target" \
-        --head "$cur_branch" \
-        --title "$pr_title" \
-        --body "$pr_body" \
-        $draft_flag 2>/dev/null); then
-        log_ok "$I18N_GIT_PR_CREATED ${W}${pr_url}${N}"
-        echo "$pr_url" > "$run_dir/pr-url.txt"
-      else
-        log_warn "$(printf "$I18N_GIT_PR_CREATE_FAILED" "$cur_branch" "$pr_target")"
-      fi
-    fi
-    return 0
-  fi
-
-  local branch="${GIT_PLAN_PREFIX}${slug}"
-
-  log_step "$I18N_GIT_CREATING_BRANCH"
-
-  # Check current branch
-  local current_branch
-  current_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-
-  if [[ -z "$current_branch" || "$current_branch" == "HEAD" ]]; then
-    log_warn "$I18N_GIT_NO_HEAD_BRANCH"
-    return 0
-  fi
-
-  # Create or checkout branch
-  if git -C "$ROOT_DIR" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-    log_warn "$(printf "$I18N_GIT_BRANCH_EXISTS" "$branch")"
-    git -C "$ROOT_DIR" checkout "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
-  else
-    git -C "$ROOT_DIR" checkout -b "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
-    log_ok "$(printf "$I18N_GIT_BRANCH_CREATED" "$branch")"
-  fi
-
-  # Commit backlog file (only if changed)
+  local slug="$1"
   if [[ -f "$BACKLOG_FILE" ]]; then
-    git -C "$ROOT_DIR" add "$BACKLOG_FILE"
-    if ! git -C "$ROOT_DIR" diff --cached --quiet 2>/dev/null; then
-      git -C "$ROOT_DIR" commit -m "plan: ${slug} — planning started (sprint backlog updated)" \
+    cd "$ROOT_DIR"
+    git add "$BACKLOG_FILE"
+    if ! git diff --cached --quiet 2>/dev/null; then
+      git commit -m "plan: ${slug} — planning started" \
         2>&1 | while IFS= read -r line; do log_info "$line"; done
       log_ok "$I18N_GIT_BACKLOG_COMMITTED"
     else
       log_info "$I18N_GIT_BACKLOG_UNCHANGED"
     fi
   fi
-
-  # Push branch to origin
-  if ! git -C "$ROOT_DIR" push -u origin "$branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_warn "$I18N_GIT_PUSH_FAILED_PR"
-    log_info "Branch: ${W}$branch${N}"
-    return 0
-  fi
-  log_ok "$(printf "$I18N_GIT_BRANCH_PUSHED" "$branch")"
-
-  # Create Draft PR
-  local pr_title="[Plan] ${slug}: ${plan_text}"
-  local pr_body
-  pr_body=$(cat "$run_dir/spec.md" 2>/dev/null || echo "$plan_text")
-
-  local draft_flag="--draft"
-  [[ "$GIT_PR_DRAFT" == "false" ]] && draft_flag=""
-
-  log_info "$(printf "$I18N_GIT_PR_CREATING" "$pr_target" "$branch")"
-  local pr_out
-
-  # shellcheck disable=SC2086
-  if pr_out=$(gh pr create \
-      --base "$pr_target" \
-      --head "$branch" \
-      --title "$pr_title" \
-      --body "$pr_body" \
-      $draft_flag 2>&1); then
-    log_ok "$I18N_GIT_PR_CREATED ${W}$pr_out${N}"
-    echo "$pr_out" > "$run_dir/pr-url.txt"
-  else
-    log_warn "$I18N_GIT_PR_FAILED"
-    log_info "Branch: origin/${W}$branch${N}  →  ${W}$pr_target${N}"
-    log_info "Error: $pr_out"
-  fi
 }
 
-# Called after cmd_implement: commit implementation changes & push
+# Called after cmd_implement: commit implementation changes
 _git_commit_sprint_impl() {
   [[ "$GIT_ENABLED" != "true" ]] && return 0
 
@@ -3398,7 +3173,6 @@ _git_commit_sprint_impl() {
   local iteration
   iteration=$(cat "$sprint_dir_path/iteration" 2>/dev/null || echo "1")
 
-  # Extract one-line sprint goal from contract.md
   local sprint_goal
   sprint_goal=$(grep -m1 '^\*\*Goal\*\*\|^Goal:' "$sprint_dir_path/contract.md" 2>/dev/null \
     | sed 's/^\*\*Goal\*\*[: ]*//;s/^Goal[: ]*//' | xargs)
@@ -3419,106 +3193,24 @@ _git_commit_sprint_impl() {
   git commit -m "$commit_msg" \
     2>&1 | while IFS= read -r line; do log_info "$line"; done
   log_ok "$(printf "$I18N_GIT_COMMIT_DONE" "$commit_msg")"
-
-  if [[ "$GIT_AUTO_PUSH" == "true" ]]; then
-    local cur_branch
-    cur_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    git push origin "$cur_branch" \
-      2>&1 | while IFS= read -r line; do log_info "$line"; done
-    log_ok "$(printf "$I18N_GIT_PUSH_DONE" "$cur_branch")"
-  fi
 }
 
-_git_push_sprint_pass() {
+# Called at run completion: commit any remaining changes
+_git_final_commit() {
   [[ "$GIT_ENABLED" != "true" ]] && return 0
 
-  local sprint_num="$1"
-  local cur_branch
-  cur_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-
-  if [[ -z "$cur_branch" || "$cur_branch" == "HEAD" ]]; then
-    log_warn "$I18N_GIT_NO_HEAD_PUSH"
-    return 0
-  fi
-
-  log_step "$(printf "$I18N_GIT_SPRINT_PASS_PUSH" "$sprint_num" "$cur_branch")"
+  log_step "$I18N_GIT_FINAL_COMMIT"
   cd "$ROOT_DIR"
-
-  # Commit any uncommitted changes (e.g. qa-report.md, status files)
   git add -A
-  if ! git diff --cached --quiet 2>/dev/null; then
-    git commit -m "qa(sprint-${sprint_num}): evaluator PASS — sprint complete" \
-      2>&1 | while IFS= read -r line; do log_info "$line"; done
-  fi
-
-  if git push origin "$cur_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "$(printf "$I18N_GIT_PUSH_DONE" "$cur_branch")"
-  else
-    log_warn "$(printf "$I18N_GIT_PUSH_FAILED" "$cur_branch")"
-  fi
-}
-
-
-_git_merge_to_base() {
-  [[ "$GIT_ENABLED" != "true" ]]    && return 0
-  [[ "$GIT_AUTO_MERGE" != "true" ]] && return 0
-
-  local feat_branch base_branch pr_target
-  feat_branch=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-  base_branch=$(_resolve_base_branch)
-  pr_target="${GIT_PR_TARGET_BRANCH:-$base_branch}"
-
-  if [[ -z "$feat_branch" || "$feat_branch" == "$base_branch" || "$feat_branch" == "HEAD" ]]; then
-    log_warn "$(printf "$I18N_GIT_NO_FEAT_BRANCH" "${feat_branch:-unknown}")"
+  if git diff --cached --quiet 2>/dev/null; then
+    log_info "$I18N_GIT_NO_CHANGES"
     return 0
   fi
 
-  log_step "$(printf "$I18N_GIT_FINALIZE" "$feat_branch" "$pr_target")"
-
-  # Commit uncommitted changes (including backlog Done status, etc.)
-  cd "$ROOT_DIR"
-  if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    log_info "$I18N_GIT_AUTO_COMMIT"
-    git add -A
-    git commit -m "chore: harn auto-commit — sprint complete" \
-      2>&1 | while IFS= read -r line; do log_info "$line"; done
-  fi
-
-  # Push feature branch to origin
-  log_info "$(printf "$I18N_GIT_UPDATE_PR" "$feat_branch")"
-  if ! git push origin "$feat_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_warn "$I18N_GIT_PUSH_FAILED_MANUAL"
-    return 1
-  fi
-  log_ok "$(printf "$I18N_GIT_PUSH_DONE" "$feat_branch")"
-
-  # gh pr merge — not squash
-  local pr_url_file pr_url
-  pr_url_file="$(require_run_dir 2>/dev/null)/pr-url.txt"
-  pr_url=$(cat "$pr_url_file" 2>/dev/null || echo "")
-
-  local merge_target="${pr_url:-$feat_branch}"
-  log_info "$(printf "$I18N_GIT_PR_MERGING" "$merge_target")"
-
-  if gh pr merge "$merge_target" --merge 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "$(printf "$I18N_GIT_PR_MERGED" "$feat_branch" "$pr_target")"
-  else
-    log_warn "$I18N_GIT_PR_MERGE_FAILED"
-    log_info "PR: ${pr_url:-}"
-    return 1
-  fi
-
-  # Return to base branch and pull
-  log_info "$(printf "$I18N_GIT_RETURN_BASE" "$base_branch")"
-  git checkout "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done
-
-  log_info "$(printf "$I18N_GIT_PULLING" "$base_branch")"
-  if git pull origin "$base_branch" 2>&1 | while IFS= read -r line; do log_info "$line"; done; then
-    log_ok "$(printf "$I18N_GIT_PULL_DONE" "$base_branch")"
-  else
-    log_warn "$(printf "$I18N_GIT_PULL_FAILED" "$base_branch")"
-    return 1
-  fi
+  local commit_msg="chore: harn sprint complete"
+  git commit -m "$commit_msg" \
+    2>&1 | while IFS= read -r line; do log_info "$line"; done
+  log_ok "$(printf "$I18N_GIT_COMMIT_DONE" "$commit_msg")"
 }
 
 # ── Retrospective ──────────────────────────────────────────────────────────────
@@ -3717,7 +3409,7 @@ _run_sprint_loop() {
       _log_raw "${G}  ║  ✓  $(printf "$I18N_LOOP_ALL_COMPLETE" "$total")${N}"
       _log_raw "${G}  ╚══════════════════════════════════════════════════════════╝${N}"
       cmd_next          # write handoff + move backlog to Done + set completed flag
-      _git_merge_to_base
+      _git_final_commit
       if [[ "$HARN_SKIP_RETRO" != "true" ]]; then
         cmd_retrospective "$run_dir"
       fi
@@ -4170,10 +3862,7 @@ cmd_config() {
       echo -e "${I18N_CONFIG_MAX_RETRIES_KEY}${W}$MAX_ITERATIONS${N}"
       echo -e "${I18N_CONFIG_GIT_KEY}${W}$GIT_ENABLED${N}"
       [[ "$GIT_ENABLED" == "true" ]] && {
-        echo -e "${I18N_CONFIG_BASE_BRANCH_KEY}${W}$GIT_BASE_BRANCH${N}$( [[ "$GIT_BASE_BRANCH" == "current" ]] && echo "  ${D}(= current git branch at runtime)${N}" )"
-        echo -e "${I18N_CONFIG_PR_TARGET_KEY}${W}${GIT_PR_TARGET_BRANCH:-$GIT_BASE_BRANCH}${N}"
-        echo -e "${I18N_CONFIG_AUTO_PUSH_KEY}${W}$GIT_AUTO_PUSH${N}"
-        echo -e "${I18N_CONFIG_AUTO_PR_KEY}${W}$GIT_AUTO_PR${N}"
+        echo -e "${I18N_CONFIG_BASE_BRANCH_KEY}${W}$GIT_BASE_BRANCH${N}"
       }
       echo ""
       echo -e "${W}$I18N_CONFIG_AI_MODELS${N}"
@@ -4486,7 +4175,6 @@ cmd_doctor() {
     echo -e "  ${I18N_DOCTOR_GIT_INTEGRATION}:  ${W}${GIT_ENABLED:-false}${N}"
     [[ "$GIT_ENABLED" == "true" ]] && {
       echo -e "  ${I18N_DOCTOR_BASE_BRANCH}:      ${W}${GIT_BASE_BRANCH:-not set}${N}"
-      echo -e "  ${I18N_DOCTOR_PR_TARGET}: ${W}${GIT_PR_TARGET_BRANCH:-not set}${N}"
     }
     echo -e "  ${I18N_DOCTOR_SPRINT_COUNT}:     ${W}${SPRINT_COUNT:-2}${N}"
     echo -e "  ${I18N_DOCTOR_AI_BACKEND}:       ${W}${AI_BACKEND:-auto}${N}"
