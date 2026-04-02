@@ -42,7 +42,7 @@ MAX_ITERATIONS=5
 GIT_ENABLED="false"
 GIT_BASE_BRANCH="main"
 CUSTOM_PROMPTS_DIR=""
-SPRINT_COUNT=2
+SPRINT_COUNT=1
 SPRINT_ROLES=""
 HARN_LANG=""          # set by _detect_lang(); ko | en
 
@@ -979,6 +979,8 @@ _i18n_load() {
     I18N_START_NO_PENDING="대기 중인 항목이 없습니다. 먼저 항목을 추가하세요."
     I18N_START_DISCOVER_HINT="항목 발굴: harn discover"
     I18N_START_ENTER_NUM="번호를 입력하세요 (1–%s): "
+    I18N_START_SPRINT_COUNT_PROMPT="스프린트 수 [1]: "
+    I18N_START_SPRINT_COUNT_INVALID="잘못된 스프린트 수 — 1로 설정"
     I18N_START_SELECTED="선택됨:"
     I18N_START_INVALID="잘못된 입력:"
     I18N_START_RUN_CREATED="실행 생성됨:"
@@ -1269,6 +1271,8 @@ _i18n_load() {
     I18N_START_NO_PENDING="No pending items in backlog. Add an item first."
     I18N_START_DISCOVER_HINT="To discover items: harn discover"
     I18N_START_ENTER_NUM="Enter number (1–%s): "
+    I18N_START_SPRINT_COUNT_PROMPT="Number of sprints [1]: "
+    I18N_START_SPRINT_COUNT_INVALID="Invalid sprint count — defaulting to 1"
     I18N_START_SELECTED="Selected:"
     I18N_START_INVALID="Invalid input:"
     I18N_START_RUN_CREATED="Run created:"
@@ -1476,7 +1480,7 @@ load_config() {
   AI_BACKEND_EVALUATOR_QA="${AI_BACKEND_EVALUATOR_QA:-$AI_BACKEND}"
 
   # Apply sprint settings from config
-  SPRINT_COUNT="${SPRINT_COUNT:-2}"
+  SPRINT_COUNT="${SPRINT_COUNT:-1}"
   SPRINT_ROLES="${SPRINT_ROLES:-}"
 
   # Re-detect language after config is sourced (LANG_OVERRIDE now available)
@@ -1889,40 +1893,6 @@ PYEOF
     || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
   read -r meq_backend meq <<< "$_tmp_eq"
 
-  # ── Sprint structure ──────────────────────────────────────────────────────────
-  echo -e "\n${W}${I18N_INIT_SPRINT_STRUCTURE}${N}"
-  printf "%s" "$I18N_INIT_SPRINT_COUNT_PROMPT"
-  local sc_input; sc_input=$(_input_readline); echo ""
-  local sc="${sc_input:-2}"
-
-  # Validate: must be a positive integer
-  if ! [[ "$sc" =~ ^[1-9][0-9]*$ ]]; then
-    # shellcheck disable=SC2059
-    log_warn "$(printf "$I18N_INIT_SPRINT_INVALID" "$sc")"
-    sc=2
-  fi
-
-  # If not default 2, ask what each sprint should do
-  local sprint_roles_arr=()
-  if [[ "$sc" -ne 2 ]]; then
-    echo -e "  ${D}${I18N_INIT_SPRINT_ROLES_HINT}${N}"
-    for ((i=1; i<=sc; i++)); do
-      local padded; padded=$(printf "%03d" "$i")
-      printf "$I18N_INIT_SPRINT_ROLE_PROMPT" "$padded"
-      local sr; sr=$(_input_readline); echo ""
-      sprint_roles_arr+=("Sprint ${padded}: ${sr:-Sprint ${padded} implementation}")
-    done
-  else
-    sprint_roles_arr=(
-      "Sprint 001: Complete feature implementation (all layers at once)"
-      "Sprint 002: Full test suite for Sprint 001"
-    )
-  fi
-  # Join with | delimiter for storage
-  local sprint_roles_str
-  sprint_roles_str=$(printf "%s|" "${sprint_roles_arr[@]}")
-  sprint_roles_str="${sprint_roles_str%|}"
-
   # ── Git integration ─────────────────────────────────────────────────────────────
   echo -e "\n${W}${I18N_INIT_GIT_SECTION}${N}"
   printf "%s" "$I18N_INIT_GIT_ENABLE_PROMPT"
@@ -1962,8 +1932,6 @@ PYEOF
 LANG_OVERRIDE="${selected_lang}"
 BACKLOG_FILE="${bf}"
 MAX_ITERATIONS=${mi}
-SPRINT_COUNT=${sc}
-SPRINT_ROLES="${sprint_roles_str}"
 
 # === AI backend ===
 AI_BACKEND="${AI_BACKEND}"
@@ -2429,6 +2397,8 @@ EOF
 
 cmd_start() {
   local slug_or_prompt="${1:-}"
+  # Internal: when set (by cmd_all/cmd_auto), skip sprint count prompt and use this value
+  local _auto_sprint_count="${_HARN_AUTO_SPRINTS:-}"
   local max_sprints="${2:-10}"
   local max_sprints_arg="${2:-}"
 
@@ -2468,6 +2438,21 @@ cmd_start() {
     fi
   fi
 
+  # ── Ask sprint count (skip in auto/all mode) ────────────────────────────────
+  if [[ -n "$_auto_sprint_count" ]]; then
+    SPRINT_COUNT="$_auto_sprint_count"
+  else
+    echo ""
+    printf "%s" "$I18N_START_SPRINT_COUNT_PROMPT"
+    local sc_input; sc_input=$(_input_readline); echo ""
+    local sc="${sc_input:-1}"
+    if ! [[ "$sc" =~ ^[1-9][0-9]*$ ]]; then
+      log_warn "$I18N_START_SPRINT_COUNT_INVALID"
+      sc=1
+    fi
+    SPRINT_COUNT="$sc"
+  fi
+
   local run_id
   run_id=$(date +%Y%m%d-%H%M%S)
   local run_dir="$HARN_DIR/runs/$run_id"
@@ -2475,6 +2460,7 @@ cmd_start() {
   mkdir -p "$run_dir/sprints"
   echo "$slug_or_prompt" > "$run_dir/prompt.txt"
   echo "1" > "$run_dir/current_sprint"
+  echo "$SPRINT_COUNT" > "$run_dir/sprint_count"
 
   # This run's dedicated log (current.log → symlink to this run's log)
   local run_log="$run_dir/run.log"
@@ -2553,16 +2539,17 @@ $slug_or_prompt"
   fi
 
   local prompt
-  # Build sprint structure instruction block from config
+  # Build sprint structure instruction block — read count from run state
+  local sprint_count_for_plan
+  sprint_count_for_plan=$(cat "$run_dir/sprint_count" 2>/dev/null || echo "${SPRINT_COUNT:-1}")
   local sprint_instruction
-  if [[ -n "${SPRINT_ROLES:-}" ]]; then
-    sprint_instruction="## Sprint Structure (configured — follow exactly)\n\nProduce exactly ${SPRINT_COUNT} sprint(s):\n"
-    IFS='|' read -ra roles_arr <<< "$SPRINT_ROLES"
-    for role_line in "${roles_arr[@]}"; do
-      sprint_instruction+="- ${role_line}\n"
-    done
+  if [[ "$sprint_count_for_plan" -eq 1 ]]; then
+    sprint_instruction="## Sprint Structure\n\nProduce exactly 1 sprint:\n- Sprint 001: Complete the full implementation including all layers and tests.\n"
   else
-    sprint_instruction="## Sprint Structure\n\nProduce exactly 2 sprints:\n- Sprint 001: Complete feature implementation (all layers at once)\n- Sprint 002: Full test suite for Sprint 001\n"
+    sprint_instruction="## Sprint Structure (follow exactly)\n\nDivide the work into exactly ${sprint_count_for_plan} sprints. Each sprint must cover a distinct, self-contained scope of the overall task. Divide by feature area, layer, or logical component — not by implementation-vs-tests. Every sprint should be independently buildable and include its own tests.\n\n"
+    for ((i=1; i<=sprint_count_for_plan; i++)); do
+      sprint_instruction+="- Sprint $(printf '%03d' "$i"): [Scope $i of ${sprint_count_for_plan} — define based on the task]\n"
+    done
   fi
 
   prompt="$(cat "$PROMPTS_DIR/planner.md")
@@ -3678,6 +3665,7 @@ PYEOF
 
 cmd_auto() {
   log_step "$I18N_AUTO_STEP"
+  _HARN_AUTO_SPRINTS=1
 
   local run_id run_dir
   run_id=$(current_run_id)
@@ -3728,6 +3716,8 @@ cmd_auto() {
 }
 
 cmd_all() {
+  _HARN_AUTO_SPRINTS=1
+
   if [[ ! -f "$BACKLOG_FILE" ]]; then
     log_err "$I18N_ALL_NO_BACKLOG $BACKLOG_FILE"
     exit 1
@@ -4177,7 +4167,7 @@ cmd_doctor() {
     [[ "$GIT_ENABLED" == "true" ]] && {
       echo -e "  ${I18N_DOCTOR_BASE_BRANCH}:      ${W}${GIT_BASE_BRANCH:-not set}${N}"
     }
-    echo -e "  ${I18N_DOCTOR_SPRINT_COUNT}:     ${W}${SPRINT_COUNT:-2}${N}"
+    echo -e "  ${I18N_DOCTOR_SPRINT_COUNT}:     ${W}${SPRINT_COUNT:-1}${N} (set per run at start)"
     echo -e "  ${I18N_DOCTOR_AI_BACKEND}:       ${W}${AI_BACKEND:-auto}${N}"
   else
     echo -e "  ${D}○${N} .harn_config:     ${I18N_DOCTOR_CONFIG_NOT_FOUND}"
