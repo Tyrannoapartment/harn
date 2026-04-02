@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.5.8"
+HARN_VERSION="1.5.9"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -1567,7 +1567,8 @@ _get_models_for_backend() {
       ;;
     codex)
       printf '%s\n' \
-        "gpt-5.4" "o4-mini" "o3" "o3-mini" "gpt-4.1" "gpt-4o"
+        "gpt-5.4" "gpt-5.4-mini" "gpt-5.3-codex" "gpt-5.2-codex" \
+        "gpt-5.2" "gpt-5.1-codex-max" "gpt-5.1-codex-mini"
       ;;
     gemini)
       printf '%s\n' \
