@@ -23,6 +23,12 @@ Automates a **Planner → Generator → Evaluator** loop that takes a backlog it
 npm install -g @tyrannoapartment/harn
 ```
 
+After install, the version is printed automatically. You can also check anytime:
+
+```bash
+harn --version
+```
+
 ### Manual (git clone)
 
 ```bash
@@ -45,6 +51,9 @@ npm uninstall -g @tyrannoapartment/harn
 ```bash
 cd /path/to/your/project
 
+# Check dependencies first (works even without config)
+harn doctor
+
 # First run launches the setup wizard automatically
 harn start
 ```
@@ -62,6 +71,7 @@ harn start
 | `harn config` | Show current config |
 | `harn config set KEY VALUE` | Update a config value |
 | `harn config regen` | Regenerate custom prompts from HINT_* in config |
+| `harn --version` | Show installed version |
 
 ### Backlog & Execution
 
@@ -69,8 +79,8 @@ harn start
 |---------|-------------|
 | `harn backlog` | Show pending backlog items |
 | `harn auto` | Resume if in-progress, start if pending, discover if empty |
-| `harn all` | Run all pending backlog items sequentially |
-| `harn start` | Select a backlog item and run the full loop |
+| `harn all` | Run all pending backlog items sequentially (1 sprint each) |
+| `harn start` | Select a backlog item, set sprint count, and run the full loop |
 | `harn discover` | Analyze codebase and suggest new backlog items |
 | `harn add` | Manually add a backlog item |
 
@@ -93,7 +103,6 @@ harn start
 | `harn runs` | List all runs |
 | `harn resume <id>` | Resume a previous run |
 | `harn stop` | Stop the running loop |
-| `harn version` | Show version |
 
 ---
 
@@ -107,12 +116,14 @@ harn start
 Select backlog item
     │
     ▼
+Prompt: "Number of sprints [1]:"
+    │  (harn auto / harn all always use 1 sprint)
+    │
+    ▼
 [Planner]  spec.md + sprint-backlog.md
     │  Model: MODEL_PLANNER
-    │  Git:   create plan/<slug> branch
-    │         commit backlog → In Progress
-    │         push to origin
-    │         open Draft PR  (fork → upstream)
+    │  Divides the task into N self-contained scopes (one per sprint)
+    │  Git (when GIT_ENABLED=true): commit backlog → In Progress
     │
     ▼  sprint loop ──────────────────────────────────────────────────────┐
     │                                                                    │
@@ -125,7 +136,7 @@ Select backlog item
     │                                                                    │
     │  ┌─ Implement → Evaluate  (up to MAX_ITERATIONS) ─────────────┐    │
     │  │  [Generator]  implement           MODEL_GENERATOR_IMPL     │    │
-    │  │      ↓   Git: commit + push                                │    │
+    │  │      ↓   Git (when GIT_ENABLED=true): commit changes       │    │
     │  │  [Evaluator]  lint / test / E2E                            │    │
     │  │               VERDICT: PASS → next sprint                  │    │
     │  │               VERDICT: FAIL → Generator retries            │    │
@@ -135,12 +146,8 @@ Select backlog item
     │
     ▼  (last sprint passes)
 [Evaluator]  write handoff.md
-backlog item → Done  +  git commit
-    │  Git (when GIT_AUTO_MERGE=true):
-    │        git push origin <branch>
-    │        gh pr merge --merge
-    │        git checkout <base>
-    │        git pull upstream <base>
+backlog item → Done
+    │  Git (when GIT_ENABLED=true): final commit
     │
     ▼
 [Evaluator]  retrospective + prompt improvement suggestions
@@ -148,7 +155,7 @@ backlog item → Done  +  git commit
 
 > **QA FAIL retry model**: `MODEL_GENERATOR_CONTRACT` (sonnet) — iteration 1 uses `MODEL_GENERATOR_IMPL` (opus); retries use the lighter model.
 
-> **Auto-merge**: only runs when `GIT_AUTO_MERGE=true`. Defaults to `false` — merge the PR manually on GitHub.
+> **Sprint count**: defaults to 1. For multi-sprint runs, the Planner divides the task by feature area or logical component — not implementation vs. tests. Each sprint is independently buildable and testable.
 
 ---
 
@@ -191,7 +198,7 @@ HARN_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start
 
 ## Configuration (.harn_config)
 
-Auto-generated on first run or `harn init`.
+Auto-generated on first run or `harn init`. Sprint count is **not** stored here — it is asked each time you run `harn start`.
 
 ```bash
 # .harn_config
@@ -209,11 +216,6 @@ MODEL_EVALUATOR_QA="claude-sonnet-4.5"
 
 GIT_ENABLED="false"
 GIT_BASE_BRANCH="main"
-GIT_UPSTREAM_REMOTE="upstream"
-GIT_AUTO_PUSH="false"
-GIT_AUTO_PR="false"
-GIT_PR_DRAFT="true"
-GIT_AUTO_MERGE="false"
 ```
 
 Update values:
