@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.5.4"
+HARN_VERSION="1.5.6"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -4062,7 +4062,7 @@ unset _lang_dir
 # ── Config load / first-run detection ────────────────────────────────────────
 _cmd="${1:-help}"
 case "$_cmd" in
-  init|help|--help|-h) : ;;  # commands that can run without config
+  init|help|--help|-h|doctor|version|--version|-V) : ;;  # commands that can run without config
   *)
     if [[ ! -f "$CONFIG_FILE" ]]; then
       _print_banner
@@ -4430,6 +4430,7 @@ case "${1:-help}" in
   tail)      cmd_tail ;;
   runs)      cmd_runs ;;
   resume)    cmd_resume "${2:-}" ;;
+  version|--version|-V) echo "harn $HARN_VERSION" ;;
   help|--help|-h) usage ;;
   *) log_err "Unknown command: $1"; usage; exit 1 ;;
 esac
