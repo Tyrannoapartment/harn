@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-HARN_VERSION="1.5.6"
+HARN_VERSION="1.5.7"
 
 # Resolve symlink to find the actual script location (handles relative symlinks)
 _THIS="${BASH_SOURCE[0]}"
@@ -40,7 +40,6 @@ BACKLOG_FILE="$ROOT_DIR/sprint-backlog.md"
 BACKLOG_FILE_DISPLAY="${BACKLOG_FILE}"
 MAX_ITERATIONS=5
 GIT_ENABLED="false"
-GIT_BASE_BRANCH="main"
 CUSTOM_PROMPTS_DIR=""
 SPRINT_COUNT=1
 SPRINT_ROLES=""
@@ -922,7 +921,6 @@ _i18n_load() {
     I18N_DOCTOR_CONFIG_FOUND="설정 파일 있음"
     I18N_DOCTOR_CONFIG_NOT_FOUND="설정 안 됨 (harn init 실행 필요)"
     I18N_DOCTOR_GIT_INTEGRATION="Git 통합"
-    I18N_DOCTOR_BASE_BRANCH="기본 브랜치"
     I18N_DOCTOR_SPRINT_COUNT="스프린트 수"
     I18N_DOCTOR_AI_BACKEND="AI 백엔드"
     I18N_DOCTOR_CUSTOM_PROMPTS="커스텀 프롬프트"
@@ -1121,7 +1119,6 @@ _i18n_load() {
     I18N_CONFIG_BACKLOG_KEY="  백로그 파일:        "
     I18N_CONFIG_MAX_RETRIES_KEY="  최대 재시도:        "
     I18N_CONFIG_GIT_KEY="  Git 통합:           "
-    I18N_CONFIG_BASE_BRANCH_KEY="  기본 작업 브랜치:   "
     I18N_CONFIG_AI_MODELS="AI 모델"
     I18N_CONFIG_CUSTOM_PROMPTS_KEY="  커스텀 프롬프트:    "
     I18N_CONFIG_NO_FILE=".harn_config 파일이 없습니다. ${W}harn init${N}을 먼저 실행하세요."
@@ -1144,12 +1141,6 @@ _i18n_load() {
     I18N_TAIL_FALLBACK="current.log 없음 — 최근 실행 로그로 대체:"
     I18N_TAIL_NO_LOG="활성 로그 없음. 먼저 실행하세요: harn auto"
     I18N_TAIL_TAILING="로그 실시간 출력:"
-    # cmd_base
-    I18N_BASE_NO_BRANCH="현재 브랜치를 확인할 수 없습니다"
-    I18N_BASE_NO_CONFIG=".harn_config 파일이 없습니다. 실행: ${W}harn init${N}"
-    I18N_BASE_SET_CURRENT="기본 브랜치 → ${W}current${N}  ${D}(현재 브랜치: %s)${N}"
-    I18N_BASE_SET_CURRENT_HINT="harn이 런타임에 활성 브랜치를 기본으로 사용합니다"
-    I18N_BASE_SET="기본 브랜치 설정됨 → ${W}%s${N}  ${D}(이전: %s)${N}"
     # _ask_user_instructions
     I18N_INSTRUCTIONS_TITLE="💬 추가 지시사항"
     I18N_INSTRUCTIONS_ENTER="%s에게 전달할 지시사항을 입력하세요."
@@ -1214,7 +1205,6 @@ _i18n_load() {
     I18N_DOCTOR_CONFIG_FOUND="found"
     I18N_DOCTOR_CONFIG_NOT_FOUND="not configured  (run harn init to set up)"
     I18N_DOCTOR_GIT_INTEGRATION="Git integration"
-    I18N_DOCTOR_BASE_BRANCH="Base branch"
     I18N_DOCTOR_SPRINT_COUNT="Sprint count"
     I18N_DOCTOR_AI_BACKEND="AI backend"
     I18N_DOCTOR_CUSTOM_PROMPTS="Custom prompts"
@@ -1413,7 +1403,6 @@ _i18n_load() {
     I18N_CONFIG_BACKLOG_KEY="  Backlog file:      "
     I18N_CONFIG_MAX_RETRIES_KEY="  Max retries:       "
     I18N_CONFIG_GIT_KEY="  Git integration:   "
-    I18N_CONFIG_BASE_BRANCH_KEY="  Base working branch: "
     I18N_CONFIG_AI_MODELS="AI Models"
     I18N_CONFIG_CUSTOM_PROMPTS_KEY="  Custom prompts:    "
     I18N_CONFIG_NO_FILE="No .harn_config file. Run ${W}harn init${N} first."
@@ -1436,12 +1425,6 @@ _i18n_load() {
     I18N_TAIL_FALLBACK="No current.log — falling back to latest run log:"
     I18N_TAIL_NO_LOG="No active log. Start a run first: harn auto"
     I18N_TAIL_TAILING="Tailing log:"
-    # cmd_base
-    I18N_BASE_NO_BRANCH="Cannot determine current branch"
-    I18N_BASE_NO_CONFIG="No .harn_config found. Run: ${W}harn init${N}"
-    I18N_BASE_SET_CURRENT="Base branch → ${W}current${N}  ${D}(resolves to: %s)${N}"
-    I18N_BASE_SET_CURRENT_HINT="harn will work on whichever branch is active at runtime"
-    I18N_BASE_SET="Base branch → ${W}%s${N}  ${D}(was: %s)${N}"
     # _ask_user_instructions
     I18N_INSTRUCTIONS_TITLE="💬 Additional instructions"
     I18N_INSTRUCTIONS_ENTER="Enter instructions to pass to %s."
@@ -1898,7 +1881,7 @@ PYEOF
   printf "%s" "$I18N_INIT_GIT_ENABLE_PROMPT"
   local git_yn; git_yn=$(_input_readline); echo ""
   local git_en="false"
-  local git_branch="main" git_guide=""
+  local git_guide=""
 
   if [[ "$git_yn" == "y" || "$git_yn" == "Y" ]]; then
     git_en="true"
@@ -3852,9 +3835,6 @@ cmd_config() {
       echo -e "${I18N_CONFIG_BACKLOG_KEY}${W}$BACKLOG_FILE${N}"
       echo -e "${I18N_CONFIG_MAX_RETRIES_KEY}${W}$MAX_ITERATIONS${N}"
       echo -e "${I18N_CONFIG_GIT_KEY}${W}$GIT_ENABLED${N}"
-      [[ "$GIT_ENABLED" == "true" ]] && {
-        echo -e "${I18N_CONFIG_BASE_BRANCH_KEY}${W}$GIT_BASE_BRANCH${N}"
-      }
       echo ""
       echo -e "${W}$I18N_CONFIG_AI_MODELS${N}"
       echo -e "  Planner:           ${W}$COPILOT_MODEL_PLANNER${N}"
@@ -4164,9 +4144,6 @@ cmd_doctor() {
   if [[ -f "$CONFIG_FILE" ]]; then
     echo -e "  ${G}✓${N} .harn_config:     ${I18N_DOCTOR_CONFIG_FOUND}  (${W}$CONFIG_FILE${N})"
     echo -e "  ${I18N_DOCTOR_GIT_INTEGRATION}:  ${W}${GIT_ENABLED:-false}${N}"
-    [[ "$GIT_ENABLED" == "true" ]] && {
-      echo -e "  ${I18N_DOCTOR_BASE_BRANCH}:      ${W}${GIT_BASE_BRANCH:-not set}${N}"
-    }
     echo -e "  ${I18N_DOCTOR_SPRINT_COUNT}:     ${W}${SPRINT_COUNT:-1}${N} (set per run at start)"
     echo -e "  ${I18N_DOCTOR_AI_BACKEND}:       ${W}${AI_BACKEND:-auto}${N}"
   else
@@ -4219,39 +4196,6 @@ cmd_doctor() {
     echo -e "${G}${I18N_DOCTOR_ALL_OK}${N}\n"
   else
     echo -e "${R}⚠ ${I18N_DOCTOR_FAIL_MSG}${N}\n"
-  fi
-}
-
-cmd_base() {
-  local target="${1:-}"
-
-  if [[ -z "$target" ]]; then
-    # No argument — set to current branch
-    target=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    if [[ -z "$target" || "$target" == "HEAD" ]]; then
-      log_err "$I18N_BASE_NO_BRANCH"
-      return 1
-    fi
-  fi
-
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    log_err "$I18N_BASE_NO_CONFIG"
-    return 1
-  fi
-
-  local prev="${GIT_BASE_BRANCH:-main}"
-  if grep -q "^GIT_BASE_BRANCH=" "$CONFIG_FILE"; then
-    sed -i '' "s|^GIT_BASE_BRANCH=.*|GIT_BASE_BRANCH=\"${target}\"|" "$CONFIG_FILE"
-  else
-    echo "GIT_BASE_BRANCH=\"${target}\"" >> "$CONFIG_FILE"
-  fi
-
-  if [[ "$target" == "current" ]]; then
-    local actual; actual=$(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "?")
-    log_ok "$(printf "$I18N_BASE_SET_CURRENT" "$actual")"
-    log_info "$I18N_BASE_SET_CURRENT_HINT"
-  else
-    log_ok "$(printf "$I18N_BASE_SET" "$target" "$prev")"
   fi
 }
 
@@ -4422,7 +4366,6 @@ case "${1:-help}" in
   stop)      cmd_stop ;;
   config)    cmd_config "${2:-show}" "${3:-}" "${4:-}" ;;
   inbox)     cmd_inbox "${2:-show}" ;;
-  base)      cmd_base "${2:-}" ;;
   backlog)   cmd_backlog ;;
   status)    cmd_status ;;
   auth)      cmd_auth "${2:-status}" ;;

@@ -215,7 +215,6 @@ MODEL_EVALUATOR_CONTRACT="claude-haiku-4.5"
 MODEL_EVALUATOR_QA="claude-sonnet-4.5"
 
 GIT_ENABLED="false"
-GIT_BASE_BRANCH="main"
 ```
 
 Update values:
