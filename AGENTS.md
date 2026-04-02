@@ -1,12 +1,12 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## What This Is
 
-**harn** is a multi-agent sprint development loop orchestrator written in Bash. It automates a **Planner → Generator → Evaluator** loop that takes a backlog item and drives it to completion through AI agents (GitHub Copilot CLI or Claude CLI).
+**harn** is a multi-agent sprint development loop orchestrator written in Bash. It automates a **Planner → Generator → Evaluator** loop that takes a backlog item and drives it to completion through AI agents (GitHub Copilot CLI or Codex CLI).
 
-Dependencies: `python3`, and either `copilot` (GitHub Copilot CLI) or `claude` CLI.
+Dependencies: `python3`, and either `copilot` (GitHub Copilot CLI) or `Codex` CLI.
 
 Published as npm package `@tyrannoapartment/harn`.
 
@@ -56,7 +56,7 @@ There is no test suite for harn itself — test manually in a real project after
   - `team.sh` — Team mode (tmux-based parallel agent execution)
   - `nlp.sh` — Natural language command router (`harn do "..."`)
 - **`parser/md_stream.py`** — Real-time markdown colorizer piped from agent stdout.
-- **`parser/stream_parser.py`** — Real-time JSON stream parser for `claude --output-format stream-json`.
+- **`parser/stream_parser.py`** — Real-time JSON stream parser for `Codex --output-format stream-json`.
 - **`prompts/`** — System prompts for each agent role: `planner.md`, `generator.md`, `evaluator.md`, `retrospective.md`. Language variants (en/ko) in subdirectories.
 
 ### Runtime state
@@ -104,7 +104,7 @@ cmd_start
 
 Two distinct paths:
 - **Sprint agents** (`invoke_role` → `invoke_copilot`): always use the detected AI CLI with `--add-dir`; Generator always gets `--effort high`.
-- **Lightweight generation** (`_ai_generate`): used by `cmd_add`, `cmd_discover`, `harn init`; auto-detects copilot first, falls back to claude.
+- **Lightweight generation** (`_ai_generate`): used by `cmd_add`, `cmd_discover`, `harn init`; auto-detects copilot first, falls back to Codex.
 
 ## Key Conventions
 
@@ -139,11 +139,11 @@ Slugs must have no spaces — they're used as programmatic identifiers.
 
 CLI flag > `HARN_MODEL_<ROLE>` env var > `.harn_config` `MODEL_<ROLE>` > hardcoded defaults
 
-Default models: Planner=`claude-haiku-4.5`, Generator(contract)=`claude-sonnet-4.6`, Generator(impl)=`claude-opus-4.6`, Evaluator(contract)=`claude-haiku-4.5`, Evaluator(QA)=`claude-sonnet-4.5`
+Default models: Planner=`Codex-haiku-4.5`, Generator(contract)=`Codex-sonnet-4.6`, Generator(impl)=`Codex-opus-4.6`, Evaluator(contract)=`Codex-haiku-4.5`, Evaluator(QA)=`Codex-sonnet-4.5`
 
 Per-invocation override:
 ```bash
-harn --generator-impl-model claude-sonnet-4.6 start
+harn --generator-impl-model Codex-sonnet-4.6 start
 ```
 
 ### Intelligent model routing

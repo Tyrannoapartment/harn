@@ -1,6 +1,6 @@
 {
   "name": "@tyrannoapartment/harn",
-  "version": "1.5.9",
+  "version": "1.6.0",
   "description": "AI multi-agent sprint development loop orchestrator (Planner → Generator → Evaluator)",
   "keywords": ["ai", "agents", "sprint", "planner", "cli", "copilot", "claude"],
   "homepage": "https://github.com/Tyrannoapartment/harn",
@@ -9,7 +9,9 @@
     "url": "https://github.com/Tyrannoapartment/harn.git"
   },
   "scripts": {
-    "postinstall": "node -e \"const v=require('./package.json').version;console.log('\\n  ✓ harn v'+v+' installed\\n  Run: harn doctor\\n')\""
+    "postinstall": "node -e \"const v=require('./package.json').version;console.log('\\n  ✓ harn v'+v+' installed\\n  Run: harn doctor\\n')\"",
+    "test": "bash -n harn.sh && for f in lib/*.sh; do bash -n \"$f\" || exit 1; done && echo '✓ bash syntax OK' && grep -h 'python3 -c' lib/*.sh | grep -v '^#' | while read -r line; do :; done && python3 -c \"import ast, subprocess, re; code=open('lib/input.sh').read(); blocks=re.findall(r\\\"python3 -c '(.+?)'\\\", code, re.DOTALL); [ast.parse(b) for b in blocks]; print('✓ python syntax OK')\" && bash harn.sh version && bash harn.sh help > /dev/null && echo '✓ help OK'",
+    "lint": "bash -n harn.sh && for f in lib/*.sh; do bash -n \"$f\" || exit 1; done && echo '✓ all syntax OK'"
   },
   "license": "MIT",
   "bin": {
@@ -17,6 +19,7 @@
   },
   "files": [
     "harn.sh",
+    "lib/",
     "parser/",
     "prompts/"
   ],
