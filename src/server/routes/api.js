@@ -7,8 +7,18 @@ import { Router } from 'express';
 import { readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig, saveConfig } from '../../core/config.js';
-import { pendingSlugs, inProgressSlug, addItem } from '../../backlog/backlog.js';
-import { listRuns, currentRunDir } from '../../run/run.js';
+import { pendingSlugs, addItem, readBacklog } from '../../backlog/backlog.js';
+
+/** Get the first in-progress slug, or null. */
+function inProgressSlug(backlogFile) {
+  if (!existsSync(backlogFile)) return null;
+  const content = readFileSync(backlogFile, 'utf-8');
+  const ipMatch = content.match(/## In Progress([\s\S]*?)(?=##|$)/);
+  if (!ipMatch) return null;
+  const m = ipMatch[1].match(/- \[ \] \*\*([^*]+)\*\*/);
+  return m ? m[1] : null;
+}
+import { listRuns, currentRunId } from '../../run/run.js';
 import { memoryLoad, memoryAppend } from '../../features/memory.js';
 import { aiGenerate } from '../../ai/backend.js';
 
@@ -23,7 +33,7 @@ export function createApiRouter({ harnDir, rootDir, configFile, sse, commandRunn
   // ─── Status ───
   router.get('/status', (_req, res) => {
     const config = loadConfig(configFile);
-    const curDir = currentRunDir(harnDir);
+    const curDir = (() => { const id = currentRunId(harnDir); return id ? join(harnDir, "runs", id) : null; })();
     let active = null;
     if (curDir) {
       active = {
@@ -144,7 +154,7 @@ export function createApiRouter({ harnDir, rootDir, configFile, sse, commandRunn
   // ─── Runs ───
   router.get('/runs', (_req, res) => {
     const runs = listRuns(harnDir);
-    const curDir = currentRunDir(harnDir);
+    const curDir = (() => { const id = currentRunId(harnDir); return id ? join(harnDir, "runs", id) : null; })();
     const curId = curDir ? curDir.split('/').pop() : null;
 
     const result = runs.map((r) => {
@@ -224,7 +234,7 @@ export function createApiRouter({ harnDir, rootDir, configFile, sse, commandRunn
 
   router.post('/command/stop', (_req, res) => {
     // Signal stop by writing a stop file
-    const curDir = currentRunDir(harnDir);
+    const curDir = (() => { const id = currentRunId(harnDir); return id ? join(harnDir, "runs", id) : null; })();
     if (curDir) {
       writeFileSync(join(curDir, '.stop'), '');
       res.json({ ok: true });

@@ -260,6 +260,49 @@ program
     program.outputHelp();
   });
 
+// ─── Default action (no subcommand) ───
+// harn → banner + AI refresh + web server
+program.action(async () => {
+  printBanner(VERSION);
+  const ctx = buildContext(program.opts());
+
+  // Quick AI tool check
+  const { execSync } = await import('node:child_process');
+  const tools = ['copilot', 'claude', 'codex'];
+  console.log('  Checking AI tools...\n');
+  for (const tool of tools) {
+    try {
+      const ver = execSync(`${tool} --version 2>/dev/null || echo ""`, {
+        encoding: 'utf-8', timeout: 4000, stdio: ['pipe','pipe','pipe'],
+      }).trim().split('\n')[0];
+      if (ver) {
+        console.log(`  \x1b[32m✓\x1b[0m  ${tool}  \x1b[2m${ver}\x1b[0m`);
+      } else {
+        console.log(`  \x1b[2m–\x1b[0m  ${tool}  \x1b[2mnot found\x1b[0m`);
+      }
+    } catch {
+      console.log(`  \x1b[2m–\x1b[0m  ${tool}  \x1b[2mnot found\x1b[0m`);
+    }
+  }
+  console.log('');
+
+  // Start web server and open browser
+  const { startServer } = await import('./server/index.js');
+  await startServer({
+    port: 7111,
+    harnDir: HARN_DIR,
+    rootDir: ROOT_DIR,
+    configFile: CONFIG_FILE,
+    openBrowser: true,
+    commandRunner: async (cmd, args) => {
+      const module = await import('./features/auto.js');
+      const fn = module[`cmd${cmd.charAt(0).toUpperCase() + cmd.slice(1)}`];
+      if (fn) return fn({ ...ctx, ...args });
+      throw new Error(`Unknown command: ${cmd}`);
+    },
+  });
+});
+
 // Parse
 program.parseAsync(process.argv).catch((err) => {
   console.error(err.message);
