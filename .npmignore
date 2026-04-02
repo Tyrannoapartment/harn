@@ -1,6 +1,13 @@
 .git/
 .github/
-.harness/
-.harness_config
+.harn/
+.harn_config
 .DS_Store
 *.log
+web/node_modules/
+web/src/
+web/public/
+web/*.config.*
+web/package*.json
+web/tsconfig*.json
+web/index.html

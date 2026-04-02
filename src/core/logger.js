@@ -70,68 +70,23 @@ export function logAgentDone() {
 // ── Banner ────────────────────────────────────────────────────────────────────
 // 3-color block logo: purple(top) / gray(mid) / teal(bottom)
 // Each "pixel" = 2 full-block chars for bold look
-const PX = '██';
-const __ = '  ';
+const BANNER = `
+  ██╗  ██╗ █████╗ ██████╗ ███╗   ██╗
+  ██║  ██║██╔══██╗██╔══██╗████╗  ██║
+  ███████║███████║██████╔╝██╔██╗ ██║
+  ██╔══██║██╔══██║██╔══██╗██║╚██╗██║
+  ██║  ██║██║  ██║██║  ██║██║ ╚████║
+  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝`;
 
-// 5×6 pixel grid per letter (each cell → PX or __)
-const LETTERS = {
-  H: [
-    [1,0,0,0,1],
-    [1,0,0,0,1],
-    [1,1,1,1,1],
-    [1,0,0,0,1],
-    [1,0,0,0,1],
-    [1,0,0,0,1],
-  ],
-  A: [
-    [0,1,1,1,0],
-    [1,0,0,0,1],
-    [1,0,0,0,1],
-    [1,1,1,1,1],
-    [1,0,0,0,1],
-    [1,0,0,0,1],
-  ],
-  R: [
-    [1,1,1,1,0],
-    [1,0,0,0,1],
-    [1,0,0,0,1],
-    [1,1,1,1,0],
-    [1,0,1,0,0],
-    [1,0,0,1,0],
-  ],
-  N: [
-    [1,0,0,0,1],
-    [1,1,0,0,1],
-    [1,0,1,0,1],
-    [1,0,0,1,1],
-    [1,0,0,0,1],
-    [1,0,0,0,1],
-  ],
-};
-
-const ROW_COLORS = [
-  '\x1b[38;5;135m', // purple
-  '\x1b[38;5;141m', // light purple
-  '\x1b[38;5;250m', // light gray
-  '\x1b[38;5;245m', // gray
-  '\x1b[38;5;80m',  // teal
-  '\x1b[38;5;44m',  // bright teal
-];
 const RESET = '\x1b[0m';
 const DIM   = '\x1b[2m';
 const BOLD  = '\x1b[1m';
 
 export function printBanner(version) {
-  const letters = ['H', 'A', 'R', 'N'];
-  const gap = '  ';
+  console.log(chalk.cyan.bold(BANNER));
+  console.log(chalk.dim(`  v${version} — AI Multi-Agent Sprint Loop\n`));
   console.log('');
-  for (let row = 0; row < 6; row++) {
-    const color = ROW_COLORS[row];
-    const line = letters
-      .map((l) => LETTERS[l][row].map((bit) => (bit ? PX : __)).join(''))
-      .join(gap);
-    process.stdout.write(`  ${color}${BOLD}${line}${RESET}\n`);
-  }
+
   const cwd = process.cwd();
   console.log('');
   console.log(`  ${BOLD}harn${RESET} ${DIM}v${version}${RESET}  ${DIM}·${RESET}  ${DIM}AI Multi-Agent Sprint Loop${RESET}`);

@@ -1,5 +1,10 @@
 .DS_Store
 .harness_config
+.harn_config
 .claude/
 .idea/
 .harn/
+node_modules/
+web/node_modules/
+web/dist/
+*.log
