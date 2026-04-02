@@ -16,7 +16,8 @@ _route_model() {
 
   # Sample first 2000 chars, lowercase
   local sample
-  sample=$(printf '%s' "$prompt_text" | head -c 2000 | tr '[:upper:]' '[:lower:]')
+  sample="${prompt_text:0:2000}"
+  sample=$(printf '%s' "$sample" | tr '[:upper:]' '[:lower:]')
 
   # Check escalation
   if echo "$sample" | grep -qiE "$_ROUTING_ESCALATION"; then

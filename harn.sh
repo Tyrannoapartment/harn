@@ -55,6 +55,7 @@ E2E_COMMAND=""
 
 # AI backend (copilot | claude) — set by init, overridable via AI_BACKEND env
 AI_BACKEND=""
+AI_BACKEND_AUXILIARY=""
 AI_BACKEND_PLANNER=""
 AI_BACKEND_GENERATOR_CONTRACT=""
 AI_BACKEND_GENERATOR_IMPL=""
@@ -62,6 +63,7 @@ AI_BACKEND_EVALUATOR_CONTRACT=""
 AI_BACKEND_EVALUATOR_QA=""
 
 # Role-specific model defaults (can be overridden via config or env)
+MODEL_AUXILIARY=""
 COPILOT_MODEL_PLANNER="claude-haiku-4.5"
 COPILOT_MODEL_GENERATOR_CONTRACT="claude-sonnet-4.6"
 COPILOT_MODEL_GENERATOR_IMPL="claude-opus-4.6"
@@ -96,6 +98,7 @@ source "$SCRIPT_DIR/lib/progress.sh"
 source "$SCRIPT_DIR/lib/update.sh"
 source "$SCRIPT_DIR/lib/team.sh"
 source "$SCRIPT_DIR/lib/nlp.sh"
+source "$SCRIPT_DIR/lib/web.sh"
 
 # ── Global option parsing (flags before command) ──────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -155,7 +158,13 @@ unset _lang_dir
 # ── Config load / first-run detection ────────────────────────────────────────
 _cmd="${1:-_welcome}"
 case "$_cmd" in
-  _welcome|init|help|--help|-h|version|--version|-V) : ;;  # commands that can run without config
+  _welcome|web|exit|init|help|--help|-h|version|--version|-V)
+    if [[ "$_cmd" == "_welcome" && -f "$CONFIG_FILE" ]]; then
+      load_config
+    elif [[ "$_cmd" == "web" || "$_cmd" == "exit" ]] && [[ -f "$CONFIG_FILE" ]]; then
+      load_config
+    fi
+    ;;  # commands that can run without config
   *)
     if [[ ! -f "$CONFIG_FILE" ]]; then
       if [[ "$_cmd" == "doctor" ]]; then
@@ -177,18 +186,21 @@ esac
 _check_update
 
 case "${1:-_welcome}" in
+  web)       cmd_web ;;
+  exit)      cmd_exit ;;
   init)      cmd_init ;;
-  auto)      cmd_auto ;;
-  all)       cmd_all ;;
+  auto)      shift; cmd_auto "$@" ;;
+  all)       shift; cmd_all "$@" ;;
   discover)  cmd_discover ;;
   add)       cmd_add ;;
-  start)     cmd_start ;;
+  start)     shift; cmd_start "$@" ;;
   plan)      cmd_plan ;;
   contract)  cmd_contract ;;
   implement) cmd_implement ;;
   evaluate)  cmd_evaluate ;;
   next)      cmd_next "${2:-}" ;;
   stop)      cmd_stop ;;
+  clear)     cmd_clear ;;
   config)    cmd_config "${2:-show}" "${3:-}" "${4:-}" ;;
   model)     cmd_model ;;
   inbox)     cmd_inbox "${2:-show}" ;;
@@ -200,9 +212,14 @@ case "${1:-_welcome}" in
   runs)      cmd_runs ;;
   resume)    cmd_resume "${2:-}" ;;
   do)        shift; cmd_do "$@" ;;
-  team)      shift; cmd_team "$@" ;;
   version|--version|-V) echo "harn $HARN_VERSION" ;;
   help|--help|-h) usage ;;
-  _welcome)  _welcome ;;
+  _welcome)
+    if [[ -f "$CONFIG_FILE" ]]; then
+      cmd_web
+    else
+      _welcome
+    fi
+    ;;
   *) log_err "Unknown command: $1"; usage; exit 1 ;;
 esac

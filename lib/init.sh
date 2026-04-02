@@ -112,11 +112,23 @@ PYEOF
   echo -e "\n${W}${I18N_INIT_AI_MODELS}${N} — ${I18N_INIT_AI_MODELS_HINT}"
   echo -e "  ${D}${I18N_INIT_AI_MODELS_HINT}${N}\n"
 
+  local max_aux_default
+  max_aux_default=$(_get_models_for_backend "${AI_BACKEND:-copilot}" | head -1)
+  local aux_model aux_backend _tmp_aux
+  if [[ "$HARN_LANG" == "ko" ]]; then
+    echo -e "  ${W}Backend AI${N}  ${D}— 사용자의 자연어 파악, 백로그 생성, 설정 추천, init 프롬프트 생성 같은 보조 작업${N}"
+  else
+    echo -e "  ${W}Backend AI${N}  ${D}— auxiliary tasks like natural-language parsing, backlog generation, config suggestion, and init prompt generation${N}"
+  fi
+  _tmp_aux=$(_pick_role_model "Backend AI" "${AI_BACKEND:-copilot}" "${max_aux_default:-claude-haiku-4.5}") \
+    || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
+  read -r aux_backend aux_model <<< "$_tmp_aux"
+
   local mp mp_backend _tmp_p
   if [[ "$HARN_LANG" == "ko" ]]; then
-    echo -e "  ${W}Planner${N}  ${D}— 백로그 항목을 읽고 스펙과 스프린트 계획을 작성하는 역할${N}"
+    echo -e "\n  ${W}Planner${N}  ${D}— 백로그 항목을 읽고 스펙과 스프린트 계획을 작성하는 역할${N}"
   else
-    echo -e "  ${W}Planner${N}  ${D}— reads backlog item, writes product spec & sprint breakdown${N}"
+    echo -e "\n  ${W}Planner${N}  ${D}— reads backlog item, writes product spec & sprint breakdown${N}"
   fi
   _tmp_p=$(_pick_role_model "Planner" "${AI_BACKEND:-copilot}" "claude-haiku-4.5") \
     || { echo ""; log_info "$I18N_INIT_CANCELLED"; return 0; }
@@ -204,6 +216,7 @@ MAX_ITERATIONS=${mi}
 
 # === AI backend ===
 AI_BACKEND="${AI_BACKEND}"
+AI_BACKEND_AUXILIARY="${aux_backend}"
 AI_BACKEND_PLANNER="${mp_backend}"
 AI_BACKEND_GENERATOR_CONTRACT="${mgc_backend}"
 AI_BACKEND_GENERATOR_IMPL="${mgi_backend}"
@@ -211,6 +224,7 @@ AI_BACKEND_EVALUATOR_CONTRACT="${mec_backend}"
 AI_BACKEND_EVALUATOR_QA="${meq_backend}"
 
 # === AI model settings ===
+MODEL_AUXILIARY="${aux_model}"
 MODEL_PLANNER="${mp}"
 MODEL_GENERATOR_CONTRACT="${mgc}"
 MODEL_GENERATOR_IMPL="${mgi}"

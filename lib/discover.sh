@@ -57,7 +57,12 @@ Rules:
 - 2–4 items only
 - No duplicates with existing backlog"
 
-  invoke_role "planner" "$prompt" "$out_file" "Analyst — discover new backlog items" "inline" "$COPILOT_MODEL_PLANNER" "planner"
+  local discover_backend
+  discover_backend="${AI_BACKEND_PLANNER:-$(_detect_ai_cli)}"
+  if ! _ai_generate "$discover_backend" "$prompt" "$out_file" "$COPILOT_MODEL_PLANNER" "quiet"; then
+    log_warn "$(printf "$I18N_DISCOVER_NO_ITEMS" "$out_file")"
+    return 0
+  fi
 
   # Extract content after section marker
   local new_items
@@ -82,12 +87,15 @@ BEOF
     log_info "$I18N_DISCOVER_BACKLOG_CREATED $BACKLOG_FILE"
   fi
 
-  # Insert directly into ## Pending section (items passed via stdin)
-  printf '%s' "${new_items}" | python3 - "$BACKLOG_FILE" <<'PYEOF'
+  # Add to Pending section via temp file (pipe + heredoc stdin conflict workaround)
+  local items_tmp; items_tmp=$(mktemp)
+  printf '%s' "${new_items}" > "$items_tmp"
+  python3 - "$BACKLOG_FILE" "$items_tmp" <<'PYEOF'
 import sys, re
 
 path = sys.argv[1]
-new_items_text = sys.stdin.read().strip()
+items_file = sys.argv[2]
+new_items_text = open(items_file, encoding='utf-8').read().strip()
 if not new_items_text:
     sys.exit(0)
 
@@ -110,6 +118,7 @@ else:
 
 open(path, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PYEOF
+  rm -f "$items_tmp"
 
   log_ok "$I18N_DISCOVER_ADDED"
   echo ""
@@ -253,4 +262,3 @@ PYEOF
 }
 
 # ── Auto mode ──────────────────────────────────────────────────────────────────
-

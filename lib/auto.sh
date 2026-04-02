@@ -4,6 +4,18 @@
 # ── Auto mode ──────────────────────────────────────────────────────────────────
 
 cmd_auto() {
+  _parse_team_option "$@"
+  if [[ "${HARN_TEAM_COUNT:-0}" -gt 1 ]]; then
+    local selected_streams
+    selected_streams=$(_select_team_workstreams "$HARN_TEAM_COUNT") || return 0
+    local team_streams=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && team_streams+=("$line")
+    done <<< "$selected_streams"
+    _launch_team_session "$HARN_TEAM_COUNT" "Auto mode: resume current run or pick the next highest-priority backlog item" "${team_streams[@]}"
+    return $?
+  fi
+
   log_step "$I18N_AUTO_STEP"
   _HARN_AUTO_SPRINTS=1
 
@@ -56,6 +68,18 @@ cmd_auto() {
 }
 
 cmd_all() {
+  _parse_team_option "$@"
+  if [[ "${HARN_TEAM_COUNT:-0}" -gt 1 ]]; then
+    local selected_streams
+    selected_streams=$(_select_team_workstreams "$HARN_TEAM_COUNT") || return 0
+    local team_streams=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && team_streams+=("$line")
+    done <<< "$selected_streams"
+    _launch_team_session "$HARN_TEAM_COUNT" "All mode: work through all pending backlog items in parallel without overlapping scopes" "${team_streams[@]}"
+    return $?
+  fi
+
   _HARN_AUTO_SPRINTS=1
 
   if [[ ! -f "$BACKLOG_FILE" ]]; then
@@ -195,6 +219,7 @@ cmd_config() {
       echo -e "${I18N_CONFIG_GIT_KEY}${W}$GIT_ENABLED${N}"
       echo ""
       echo -e "${W}$I18N_CONFIG_AI_MODELS${N}"
+      echo -e "  Backend AI:        ${W}${AI_BACKEND_AUXILIARY:-${AI_BACKEND:-auto}}${N} / ${W}${MODEL_AUXILIARY:-auto}${N}"
       echo -e "  Planner:           ${W}$COPILOT_MODEL_PLANNER${N}"
       echo -e "  Generator (contract): ${W}$COPILOT_MODEL_GENERATOR_CONTRACT${N}"
       echo -e "  Generator (impl):  ${W}$COPILOT_MODEL_GENERATOR_IMPL${N}"
@@ -257,13 +282,23 @@ cmd_config() {
 
 cmd_model() {
   local ROLES=(
+    "Backend AI"
     "Planner"
     "Generator (contract)"
     "Generator (impl)"
     "Evaluator (contract)"
     "Evaluator (QA)"
   )
+  local ROLE_DESCS=(
+    "사용자의 자연어 파악, 백로그 생성, 설정 추천, init 프롬프트 생성 같은 보조 작업"
+    "백로그 항목을 읽고 스펙과 스프린트 계획을 작성"
+    "스프린트 범위를 제안하고 협상"
+    "실제 코드 구현"
+    "스코프 검토와 승인"
+    "테스트/QA와 PASS/FAIL 판정"
+  )
   local MODEL_KEYS=(
+    "MODEL_AUXILIARY"
     "MODEL_PLANNER"
     "MODEL_GENERATOR_CONTRACT"
     "MODEL_GENERATOR_IMPL"
@@ -271,6 +306,7 @@ cmd_model() {
     "MODEL_EVALUATOR_QA"
   )
   local BACKEND_KEYS=(
+    "AI_BACKEND_AUXILIARY"
     "AI_BACKEND_PLANNER"
     "AI_BACKEND_GENERATOR_CONTRACT"
     "AI_BACKEND_GENERATOR_IMPL"
@@ -278,6 +314,7 @@ cmd_model() {
     "AI_BACKEND_EVALUATOR_QA"
   )
   local CURRENT_MODELS=(
+    "${MODEL_AUXILIARY:-auto}"
     "$COPILOT_MODEL_PLANNER"
     "$COPILOT_MODEL_GENERATOR_CONTRACT"
     "$COPILOT_MODEL_GENERATOR_IMPL"
@@ -285,6 +322,7 @@ cmd_model() {
     "$COPILOT_MODEL_EVALUATOR_QA"
   )
   local CURRENT_BACKENDS=(
+    "${AI_BACKEND_AUXILIARY:-${AI_BACKEND:-copilot}}"
     "${AI_BACKEND_PLANNER:-${AI_BACKEND:-copilot}}"
     "${AI_BACKEND_GENERATOR_CONTRACT:-${AI_BACKEND:-copilot}}"
     "${AI_BACKEND_GENERATOR_IMPL:-${AI_BACKEND:-copilot}}"
@@ -295,11 +333,11 @@ cmd_model() {
   echo ""
   echo -e "  ${W}AI 모델 설정${N}"
   echo ""
-  echo -e "  Planner:              ${D}${CURRENT_BACKENDS[0]} / ${CURRENT_MODELS[0]}${N}"
-  echo -e "  Generator (contract): ${D}${CURRENT_BACKENDS[1]} / ${CURRENT_MODELS[1]}${N}"
-  echo -e "  Generator (impl):     ${D}${CURRENT_BACKENDS[2]} / ${CURRENT_MODELS[2]}${N}"
-  echo -e "  Evaluator (contract): ${D}${CURRENT_BACKENDS[3]} / ${CURRENT_MODELS[3]}${N}"
-  echo -e "  Evaluator (QA):       ${D}${CURRENT_BACKENDS[4]} / ${CURRENT_MODELS[4]}${N}"
+  local i
+  for i in "${!ROLES[@]}"; do
+    printf '  %-22s %b%s / %s%b\n' "${ROLES[$i]}:" "$D" "${CURRENT_BACKENDS[$i]}" "${CURRENT_MODELS[$i]}" "$N"
+    echo -e "                         ${D}${ROLE_DESCS[$i]}${N}"
+  done
   echo ""
 
   local role_choice
@@ -309,6 +347,11 @@ cmd_model() {
   for i in "${!ROLES[@]}"; do
     [[ "${ROLES[$i]}" == "$role_choice" ]] && { ri=$i; break; }
   done
+
+  echo ""
+  echo -e "  ${W}${ROLES[$ri]}${N}"
+  echo -e "  ${D}${ROLE_DESCS[$ri]}${N}"
+  echo ""
 
   local picked current_backend current_model
   current_backend="${CURRENT_BACKENDS[$ri]}"
@@ -338,6 +381,22 @@ cmd_runs() {
     marker=""; [[ "$id" == "$current_id" ]] && marker=" ${G}← current${N}"
     echo -e "  ${W}$id${N}: $prompt$marker"
   done
+}
+
+cmd_clear() {
+  mkdir -p "$HARN_DIR"
+
+  if [[ -f "$HARN_DIR/harn.pid" ]]; then
+    cmd_stop || true
+  fi
+
+  rm -f "$HARN_DIR/current" "$HARN_DIR/current.log" "$HARN_DIR/harn.pid"
+  rm -rf "$HARN_DIR/runs"
+  mkdir -p "$HARN_DIR/runs"
+  : > "$HARN_DIR/harn.log"
+
+  log_ok ".harn run state and logs cleared"
+  log_info "preserved: ${W}$HARN_DIR/memory.md${N}, ${W}$HARN_DIR/prompts${N}, ${W}$CONFIG_FILE${N}"
 }
 
 cmd_resume() {
@@ -469,9 +528,9 @@ _repl_slash_help() {
   echo ""
 
   echo -e "  ${C}🚀 실행${N}"
-  echo -e "    ${W}/auto${N}              ${D}자동 감지: 재개/시작/발굴${N}"
-  echo -e "    ${W}/all${N}               ${D}대기 항목 전부 순차 실행${N}"
-  echo -e "    ${W}/start${N} [slug]      ${D}특정 백로그 항목 시작${N}"
+  echo -e "    ${W}/auto${N} [--team=N]   ${D}자동 감지: 재개/시작/발굴, 옵션으로 N병렬 팀 실행${N}"
+  echo -e "    ${W}/all${N} [--team=N]    ${D}대기 항목 전부 실행, 옵션으로 N병렬 팀 실행${N}"
+  echo -e "    ${W}/start${N} [slug] [--team=N] ${D}특정 백로그 항목 시작, 옵션으로 N병렬 팀 실행${N}"
   echo -e "    ${W}/stop${N}              ${D}실행 루프 중단${N}"
   echo ""
 
@@ -499,11 +558,8 @@ _repl_slash_help() {
   echo -e "    ${W}/doctor${N}            ${D}환경 진단${N}"
   echo ""
 
-  echo -e "  ${C}🤖 스마트${N}"
-  echo -e "    ${W}/team${N} [N] <task>   ${D}N개 병렬 에이전트 실행${N}"
-  echo ""
-
   echo -e "  ${C}❓ 기타${N}"
+  echo -e "    ${W}/clear${N}             ${D}.harn 진행 상태와 로그 비우기${N}"
   echo -e "    ${W}/help${N}              ${D}이 도움말 보기${N}"
   echo -e "    ${W}/exit${N}              ${D}종료${N}"
   echo ""
@@ -518,9 +574,9 @@ _repl_slash_help() {
 # Interactive REPL — full-screen TUI entry point when `harn` is run with no args
 # Uses alternate screen buffer so original terminal is restored on exit.
 # Layout:
-#   rows 1..(rows-2) — scroll region (banner + command output)
-#   row (rows-1)     — separator with hint text
-#   row (rows)       — input prompt (fixed at absolute bottom)
+#   rows 1..header_height — fixed header
+#   rows (header_height+1)..scroll_end — scrollable output area
+#   bottom fixed composer — Codex-style input box
 _welcome() {
   # Non-interactive environments (stdout piped/redirected): just print header and exit
   if [[ ! -t 1 ]]; then
@@ -534,38 +590,62 @@ _welcome() {
   _tui_cols=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
   [[ -z "$_tui_rows" || "$_tui_rows" -lt 10 ]] && _tui_rows=24
   [[ -z "$_tui_cols" || "$_tui_cols" -lt 20 ]] && _tui_cols=80
-  local _input_row=$_tui_rows
-  local _sep_row=$(( _tui_rows - 1 ))
-  local _scroll_end=$(( _tui_rows - 2 ))
+  local _composer_height=4
+  local _composer_top=$(( _tui_rows - _composer_height + 1 ))
+  local _header_height=16
+  [[ ! -f "$CONFIG_FILE" ]] && _header_height=14
+  if [[ $_header_height -gt $(( _composer_top - 3 )) ]]; then
+    _header_height=$(( _composer_top - 3 ))
+  fi
+  [[ $_header_height -lt 1 ]] && _header_height=1
+  local _scroll_start=$(( _header_height + 1 ))
+  local _scroll_end=$(( _composer_top - 1 ))
 
-  # Enter alternate screen buffer
-  printf '\033[?1049h' >/dev/tty
+  # Stay on the normal screen buffer so terminal scrollback remains available.
   printf '\033[2J\033[H' >/dev/tty
 
-  # Draw banner & project info (all output to /dev/tty to stay in alt screen)
-  _welcome_header >/dev/tty
+  _tui_draw_header() {
+    printf '\033[H' >/dev/tty
+    _welcome_header >/dev/tty
+  }
 
-  # Draw chrome (separator with hint)
+  # Draw banner & project info in the fixed header area
+  _tui_draw_header
+
+  # Draw chrome (fixed bottom composer shell)
   _tui_draw_chrome() {
-    printf '\033[%d;1H\033[2K' "$_sep_row" >/dev/tty
-    printf '  \033[2m── 자연어 입력 또는 /명령어  ·  /help 도움말  ·  Ctrl+C 종료 ' >/dev/tty
-    local _pad=$(( _tui_cols - 58 ))
-    [[ $_pad -gt 0 ]] && printf '─%.0s' $(seq 1 $_pad) >/dev/tty
-    printf '\033[0m' >/dev/tty
-    # Clear input row
-    printf '\033[%d;1H\033[2K' "$_input_row" >/dev/tty
+    local _row
+    local _bg=$'\033[48;5;238m'
+    local _fg=$'\033[38;5;252m'
+    local _muted=$'\033[38;5;245m'
+    local _reset=$'\033[0m'
+    local _fill
+    _fill=$(printf '%*s' "$_tui_cols" '')
+
+    for _row in $(seq $((_composer_top + 1)) $((_tui_rows - 1))); do
+      printf '\033[%d;1H\033[2K%s%s%s' "$_row" "$_bg" "$_fill" "$_reset" >/dev/tty
+      if [[ "$_row" -eq $((_composer_top + 1)) ]]; then
+        printf '\033[%d;1H%s%s› %s메시지 또는 /명령어를 입력하세요%s' "$_row" "$_bg" "$_fg" "$_muted" "$_reset" >/dev/tty
+      fi
+    done
+
+    local _status="ESC clear · Enter send · $ROOT_DIR"
+    local _status_len=${#_status}
+    if [[ $_status_len -gt $_tui_cols ]]; then
+      _status="${_status: -$_tui_cols}"
+    fi
+    printf '\033[%d;1H\033[2K%s%s%s' "$_tui_rows" "$_muted" "$_status" "$_reset" >/dev/tty
   }
   _tui_draw_chrome
 
-  # Set scroll region: content area only (rows 1 to rows-2)
-  printf '\033[1;%dr' "$_scroll_end" >/dev/tty
+  # Set scroll region: content area only (between fixed header and fixed composer)
+  printf '\033[%d;%dr' "$_scroll_start" "$_scroll_end" >/dev/tty
   # Position cursor inside scroll region for future command output
-  printf '\033[%d;1H' "$_scroll_end" >/dev/tty
+  printf '\033[%d;1H' "$_scroll_start" >/dev/tty
 
   # Cleanup function — restore terminal on exit
   _tui_cleanup() {
     printf '\033[r' >/dev/tty 2>/dev/null || true
-    printf '\033[?1049l' >/dev/tty 2>/dev/null || true
   }
   trap '_tui_cleanup; _harn_on_exit' EXIT
 
@@ -578,13 +658,22 @@ _welcome() {
     [[ "$args" == "$cmd" ]] && args=""
 
     # Temporarily reset scroll region so command output uses full content area
-    printf '\033[1;%dr' "$_scroll_end" >/dev/tty
-    printf '\033[%d;1H' "$_scroll_end" >/dev/tty
+    printf '\033[%d;%dr' "$_scroll_start" "$_scroll_end" >/dev/tty
+    printf '\033[%d;1H' "$_scroll_start" >/dev/tty
 
     case "$cmd" in
+      clear|cls)
+        cmd_clear
+        printf '\033[2J\033[H' >/dev/tty
+        _tui_draw_header
+        _tui_draw_chrome
+        printf '\033[%d;%dr' "$_scroll_start" "$_scroll_end" >/dev/tty
+        printf '\033[%d;1H' "$_scroll_start" >/dev/tty
+        return 0
+        ;;
       help|h|"?")  _repl_slash_help >/dev/tty ;;
-      auto)        cmd_auto ;;
-      all)         cmd_all ;;
+      auto)        cmd_auto $args ;;
+      all)         cmd_all $args ;;
       start)       cmd_start $args ;;
       backlog|bl)  cmd_backlog >/dev/tty ;;
       add)         cmd_add ;;
@@ -600,7 +689,6 @@ _welcome() {
       doctor)      cmd_doctor >/dev/tty ;;
       init)        cmd_init ;;
       runs)        cmd_runs >/dev/tty ;;
-      team)        cmd_team $args ;;
       exit|quit|q) return 99 ;;
       *)           echo -e "  ${R}✗${N}  Unknown: /${cmd}  (/help)" >/dev/tty ;;
     esac
@@ -613,11 +701,13 @@ _welcome() {
   local _repl_running=true
   trap '_repl_running=false; _tui_cleanup' INT
 
-  export HARN_TUI_INPUT_ROW=$_input_row
+  export HARN_TUI_COMPOSER_TOP=$_composer_top
+  export HARN_TUI_COMPOSER_HEIGHT=$_composer_height
 
   while $_repl_running; do
     local line
     line=$(_input_repl_line 2>/dev/null) || { break; }
+    [[ "$line" == "__HARN_REPL_CANCELLED__" ]] && { _tui_draw_chrome; continue; }
 
     # Trim whitespace
     line="${line#"${line%%[![:space:]]*}"}"
@@ -626,6 +716,7 @@ _welcome() {
 
     if [[ "$line" == /* ]]; then
       local _rc=0
+      _tui_draw_chrome
       set +e
       _repl_dispatch_slash "$line"
       _rc=$?
@@ -633,8 +724,9 @@ _welcome() {
       [[ $_rc -eq 99 ]] && break
     else
       local _rc2=0
-      printf '\033[1;%dr' "$_scroll_end" >/dev/tty
-      printf '\033[%d;1H' "$_scroll_end" >/dev/tty
+      _tui_draw_chrome
+      printf '\033[%d;%dr' "$_scroll_start" "$_scroll_end" >/dev/tty
+      printf '\033[%d;1H' "$_scroll_start" >/dev/tty
       set +e
       cmd_do "$line"
       _rc2=$?
@@ -643,7 +735,8 @@ _welcome() {
     fi
   done
 
-  unset HARN_TUI_INPUT_ROW
+  unset HARN_TUI_COMPOSER_TOP
+  unset HARN_TUI_COMPOSER_HEIGHT
   trap - INT
   _tui_cleanup
   trap '_harn_on_exit' EXIT

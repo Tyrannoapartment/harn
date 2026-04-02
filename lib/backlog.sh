@@ -82,6 +82,86 @@ backlog_mark_done() {
   log_ok "Backlog: ${W}$slug${N} marked as done"
 }
 
+backlog_move_item_section() {
+  local slug="$1"
+  local target_section="$2"
+  local mark_done="${3:-false}"
+
+  [[ ! -f "$BACKLOG_FILE" ]] && return 1
+
+  python3 - "$BACKLOG_FILE" "$slug" "$target_section" "$mark_done" <<'PYEOF'
+import re
+import sys
+
+path, slug, target_section, mark_done = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].lower() == 'true'
+content = open(path, encoding='utf-8').read()
+lines = content.splitlines()
+
+slug_pattern = re.compile(r'^- \[[ x]\] \*\*' + re.escape(slug) + r'\*\*')
+
+sections = []
+current_name = None
+current_start = None
+for idx, line in enumerate(lines):
+    if line.startswith('## '):
+        if current_name is not None:
+            sections.append((current_name, current_start, idx))
+        current_name = line[3:].strip()
+        current_start = idx
+if current_name is not None:
+    sections.append((current_name, current_start, len(lines)))
+
+item_start = None
+item_end = None
+for _, sec_start, sec_end in sections:
+    i = sec_start + 1
+    while i < sec_end:
+        if slug_pattern.match(lines[i]):
+            item_start = i
+            j = i + 1
+            while j < sec_end and not lines[j].startswith('- [') and not lines[j].startswith('## '):
+                j += 1
+            item_end = j
+            break
+        i += 1
+    if item_start is not None:
+        break
+
+if item_start is None:
+    print(f'NOT_FOUND:{slug}')
+    sys.exit(2)
+
+item_lines = lines[item_start:item_end]
+if mark_done:
+    item_lines[0] = re.sub(r'^- \[ \]', '- [x]', item_lines[0], count=1)
+
+del lines[item_start:item_end]
+
+target_index = None
+for sec_name, sec_start, _ in sections:
+    if sec_name.strip().lower() == target_section.strip().lower():
+        target_index = sec_start + 1
+        break
+
+if target_index is None:
+    if lines and lines[-1] != '':
+        lines.append('')
+    lines.append(f'## {target_section}')
+    target_index = len(lines)
+
+insert_block = item_lines[:]
+if target_index < len(lines) and lines[target_index:target_index + 1] != ['']:
+    insert_block.append('')
+lines[target_index:target_index] = insert_block
+
+new_content = '\n'.join(lines)
+if content.endswith('\n'):
+    new_content += '\n'
+open(path, 'w', encoding='utf-8').write(new_content)
+print('MOVED')
+PYEOF
+}
+
 # Upsert plan line for selected backlog item (In Progress items take priority)
 backlog_upsert_plan_line() {
   local slug="$1"

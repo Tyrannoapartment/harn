@@ -1,7 +1,8 @@
 {
   "name": "@tyrannoapartment/harn",
-  "version": "1.6.0",
+  "version": "2.0.0",
   "description": "AI multi-agent sprint development loop orchestrator (Planner → Generator → Evaluator)",
+  "type": "module",
   "keywords": ["ai", "agents", "sprint", "planner", "cli", "copilot", "claude"],
   "homepage": "https://github.com/Tyrannoapartment/harn",
   "repository": {
@@ -9,21 +10,30 @@
     "url": "https://github.com/Tyrannoapartment/harn.git"
   },
   "scripts": {
-    "postinstall": "node -e \"const v=require('./package.json').version;console.log('\\n  ✓ harn v'+v+' installed\\n  Run: harn doctor\\n')\"",
-    "test": "bash -n harn.sh && for f in lib/*.sh; do bash -n \"$f\" || exit 1; done && echo '✓ bash syntax OK' && grep -h 'python3 -c' lib/*.sh | grep -v '^#' | while read -r line; do :; done && python3 -c \"import ast, subprocess, re; code=open('lib/input.sh').read(); blocks=re.findall(r\\\"python3 -c '(.+?)'\\\", code, re.DOTALL); [ast.parse(b) for b in blocks]; print('✓ python syntax OK')\" && bash harn.sh version && bash harn.sh help > /dev/null && echo '✓ help OK'",
-    "lint": "bash -n harn.sh && for f in lib/*.sh; do bash -n \"$f\" || exit 1; done && echo '✓ all syntax OK'"
+    "dev": "node src/cli.js",
+    "dev:web": "cd web && npm run dev",
+    "build:web": "cd web && npm run build",
+    "lint": "for f in src/**/*.js src/*.js; do node --check $f || exit 1; done && echo '✓ syntax OK'",
+    "test": "for f in src/**/*.js src/*.js; do node --check $f || exit 1; done && echo '✓ syntax OK'",
+    "postinstall": ""
   },
   "license": "MIT",
   "bin": {
-    "harn": "./harn.sh"
+    "harn": "./src/cli.js"
   },
   "files": [
-    "harn.sh",
-    "lib/",
-    "parser/",
-    "prompts/"
+    "src/",
+    "prompts/",
+    "web/dist/"
   ],
   "engines": {
-    "node": ">=14"
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "express": "^4.21.2",
+    "open": "^10.1.0",
+    "inquirer": "^12.6.0"
   }
 }

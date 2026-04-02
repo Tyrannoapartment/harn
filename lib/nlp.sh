@@ -27,7 +27,7 @@ _nlp_config_context() {
 
 _nlp_add_item() {
   local user_input="$1"
-  local ai_cmd; ai_cmd=$(_detect_ai_cli)
+  local ai_cmd; ai_cmd=$(_detect_aux_ai_cli)
 
   local current_backlog=""
   [[ -f "$BACKLOG_FILE" ]] && current_backlog=$(cat "$BACKLOG_FILE")
@@ -53,7 +53,7 @@ Rules: slug = hyphenated-lowercase ≤50 chars, description indented 2 spaces."
   local out_file; out_file=$(mktemp)
   log_info "${I18N_NLP_GENERATING:-Generating backlog items...}"
 
-  if ! _ai_generate "$ai_cmd" "$prompt" "$out_file"; then
+  if ! _ai_generate "$ai_cmd" "$prompt" "$out_file" "quiet"; then
     log_err "${I18N_NLP_FAILED:-Failed}"
     rm -f "$out_file"; return 1
   fi
@@ -128,7 +128,7 @@ PYEOF
 
 _nlp_config_suggest() {
   local user_input="$1"
-  local ai_cmd; ai_cmd=$(_detect_ai_cli)
+  local ai_cmd; ai_cmd=$(_detect_aux_ai_cli)
 
   local config_content; config_content=$(_nlp_config_context)
 
@@ -158,7 +158,7 @@ Examples:
   local result_file; result_file=$(mktemp)
   log_info "${I18N_NLP_ANALYZING:-Analyzing request...}"
 
-  if ! _ai_generate "$ai_cmd" "$prompt" "$result_file"; then
+  if ! _ai_generate "$ai_cmd" "$prompt" "$result_file" "quiet"; then
     log_err "${I18N_NLP_FAILED:-Failed}"; rm -f "$result_file"; return 1
   fi
 
@@ -221,7 +221,7 @@ cmd_do() {
     return 1
   fi
 
-  local ai_cmd; ai_cmd=$(_detect_ai_cli)
+  local ai_cmd; ai_cmd=$(_detect_aux_ai_cli)
   [[ -z "$ai_cmd" ]] && { log_err "No AI CLI found"; return 1; }
 
   local backlog_ctx; backlog_ctx=$(_nlp_backlog_context)
@@ -239,7 +239,7 @@ Choose the BEST action type and respond with EXACTLY one line:
 
 Option A — Run a command:
 COMMAND: <cmd> [args]
-Available: auto, all, start [slug], discover, backlog, status, stop, plan, config show, team [N] <task>, doctor
+Available: auto, all, start [slug], discover, backlog, status, stop, plan, config show, doctor
 
 Option B — Add backlog item (user describes something to build/fix, no slug given yet):
 ADD_ITEM: <natural description>
@@ -262,7 +262,7 @@ Examples:
 - \"planner 모델 바꾸고 싶어\" → CONFIG_SUGGEST: change planner model
 - \"모든 모델 haiku로 설정해줘\" → CONFIG_SUGGEST: set all role models to haiku
 - \"최대 재시도 횟수 늘려줘\" → CONFIG_SUGGEST: change max iterations
-- \"3명이서 로그인 기능 만들어\" → COMMAND: team 3 implement login feature
+- \"3명이서 로그인 기능 만들어\" → COMMAND: start --team=3 login-feature
 - \"멈춰\" → COMMAND: stop"
 
   log_step "${I18N_NLP_ANALYZING:-Analyzing request...}"
@@ -270,7 +270,7 @@ Examples:
 
   local result_file; result_file=$(mktemp)
 
-  if ! _ai_generate "$ai_cmd" "$routing_prompt" "$result_file"; then
+  if ! _ai_generate "$ai_cmd" "$routing_prompt" "$result_file" "quiet"; then
     log_err "${I18N_NLP_FAILED:-Failed to analyze request}"
     rm -f "$result_file"; return 1
   fi
@@ -324,7 +324,6 @@ Examples:
         status)    cmd_status ;;
         stop)      cmd_stop ;;
         plan)      cmd_plan ;;
-        team)      cmd_team "$args" ;;
         config)    cmd_config "${args:-show}" ;;
         doctor)    cmd_doctor ;;
         *)         log_err "Unknown command: $cmd"; return 1 ;;

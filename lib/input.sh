@@ -177,11 +177,10 @@ if lines: print("\n".join(lines), end="")
 }
 
 # REPL input line with slash-command autocomplete (TUI-aware)
-# Expects env HARN_TUI_INPUT_ROW = the 1-based terminal row for the input line.
-# If not set, defaults to terminal height.
-# Dropdown appears above the input line using absolute positioning.
+# Expects env HARN_TUI_COMPOSER_TOP / HARN_TUI_COMPOSER_HEIGHT.
+# Dropdown appears above the fixed bottom composer.
 # Does NOT touch scroll regions — the caller (TUI) owns that.
-# Stdout: entered line; exits 1 on Ctrl+C/Ctrl+Q
+# Stdout: entered line; prints __HARN_REPL_CANCELLED__ on ESC line-cancel; exits 1 on Ctrl+C/Ctrl+Q
 _input_repl_line() {
   python3 -c '
 import sys, tty, termios, unicodedata, os
@@ -210,14 +209,12 @@ CMDS = [
     ("/doctor",     "환경 진단"),
     ("/init",       "초기 설정"),
     ("/runs",       "실행 목록"),
-    ("/team",       "병렬 에이전트"),
+    ("/clear",      ".harn 상태 초기화"),
     ("/help",       "도움말"),
     ("/exit",       "종료"),
 ]
-NEEDS_ARGS = {"/start", "/config", "/team", "/resume"}
+NEEDS_ARGS = {"/start", "/config", "/resume"}
 MAX_SHOWN  = 8
-PROMPT     = "  \u276f "
-PROMPT_W   = 4
 
 fd  = open("/dev/tty", "rb+", buffering=0)
 old = termios.tcgetattr(fd)
@@ -228,13 +225,12 @@ try:
 except Exception:
     rows, cols = 24, 80
 
-# The row where the input line lives (set by TUI, or bottom of terminal)
-input_row = int(os.environ.get("HARN_TUI_INPUT_ROW", str(rows)))
-max_shown = min(MAX_SHOWN, max(1, input_row - 3))
-
-# Draw initial prompt at the input row
-fd.write(f"\033[{input_row};1H\033[K{PROMPT}".encode())
-fd.flush()
+composer_height = int(os.environ.get("HARN_TUI_COMPOSER_HEIGHT", "4"))
+composer_top = int(os.environ.get("HARN_TUI_COMPOSER_TOP", str(max(1, rows - composer_height + 1))))
+composer_bottom = composer_top + composer_height - 1
+content_rows = max(1, composer_height - 2)
+inner_width = max(20, cols - 2)
+max_shown = min(MAX_SHOWN, max(1, composer_top - 2))
 
 chars     = []
 buf_b     = b""
@@ -244,25 +240,94 @@ vs        = 0
 cm        = []
 cdrawlen  = 0
 cancelled = False
+line_cancelled = False
 
 def get_typed():  return "".join(chars)
-def cur_col():    return PROMPT_W + twc(get_typed()) + 1
+
+def wrap_text(text, width):
+    if width <= 1:
+        return [text]
+    lines = []
+    cur = ""
+    cur_w = 0
+    for ch in text:
+        ch_w = cw(ch)
+        if cur and cur_w + ch_w > width:
+            lines.append(cur)
+            cur = ch
+            cur_w = ch_w
+        else:
+            cur += ch
+            cur_w += ch_w
+    lines.append(cur)
+    return lines or [""]
 
 def get_matches():
     t = get_typed().lower()
     if not t.startswith("/"): return []
     return [(c, d) for c, d in CMDS if c.startswith(t)]
 
+def render_input():
+    text = get_typed()
+    wrapped = wrap_text(text, inner_width - 4)
+    visible = wrapped[-content_rows:]
+
+    out = []
+    bg = "\033[48;5;238m"
+    fg = "\033[38;5;252m"
+    muted = "\033[38;5;245m"
+    reset = "\033[0m"
+    fill = " " * max(0, cols)
+
+    for i in range(content_rows):
+        row = composer_top + 1 + i
+        line = visible[i] if i < len(visible) else ""
+        prefix = "› " if i == 0 else "  "
+        line_pad = max(0, inner_width - len(prefix) - twc(line))
+        if not text and i == 0:
+            placeholder = "메시지 또는 /명령어를 입력하세요"
+            placeholder_pad = " " * max(0, inner_width - len(prefix) - twc(placeholder))
+            out.append(
+                (f"\033[{row};1H\033[2K{bg}{fill}{reset}"
+                 + f"\033[{row};1H{bg}{fg}{prefix}{muted}{placeholder}"
+                 + placeholder_pad
+                 + reset).encode("utf-8")
+            )
+        else:
+            out.append(
+                (f"\033[{row};1H\033[2K{bg}{fill}{reset}"
+                 + f"\033[{row};1H{bg}{fg}{prefix}{line}"
+                 + (" " * line_pad)
+                 + reset).encode("utf-8")
+            )
+
+    status = "ESC clear · Enter send · " + os.getcwd()
+    if twc(status) > max(0, cols):
+        status = status[-max(0, cols):]
+    out.append(f"\033[{composer_bottom};1H\033[2K\033[38;5;245m{status}{reset}".encode("utf-8"))
+
+    cursor_line = visible[-1] if visible else ""
+    cursor_row = composer_top + min(max(1, len(visible)), content_rows)
+    if not text:
+        cursor_row = composer_top + 1
+        cursor_col = 3
+    else:
+        prefix = "› " if len(visible) == 1 else "  "
+        cursor_col = 1 + len(prefix) + twc(cursor_line)
+    out.append(f"\033[{cursor_row};{max(1, cursor_col)}H".encode("utf-8"))
+    fd.write(b"".join(out))
+    fd.flush()
+
 def erase_comp():
     global cdrawlen
     if cdrawlen == 0: return
-    start = input_row - cdrawlen
+    start = composer_top - cdrawlen
     out   = []
     for i in range(cdrawlen):
         out.append(f"\033[{start + i};1H\033[K".encode())
-    out.append(f"\033[{input_row};{cur_col()}H".encode())
     fd.write(b"".join(out)); fd.flush()
     cdrawlen = 0
+    render_input()
 
 def draw_comp(m, idx):
     global cdrawlen, vs
@@ -289,7 +354,7 @@ def draw_comp(m, idx):
         lines.append(f"  \033[2m\u2193 {below}개 아래\033[0m".encode("utf-8"))
 
     n = len(lines)
-    start_row = input_row - n
+    start_row = composer_top - n
     if start_row < 1:
         lines = lines[1 - start_row :]; n = len(lines); start_row = 1
 
@@ -297,15 +362,15 @@ def draw_comp(m, idx):
     for i, line in enumerate(lines):
         out.append(f"\033[{start_row + i};1H\033[K".encode())
         out.append(line)
-    out.append(f"\033[{input_row};{cur_col()}H".encode())
     fd.write(b"".join(out)); fd.flush()
     cdrawlen = n
+    render_input()
 
 def replace_input(new_text):
-    fd.write(f"\033[{input_row};{PROMPT_W + 1}H\033[K".encode())
     chars.clear(); chars.extend(list(new_text))
-    if new_text: fd.write(new_text.encode("utf-8"))
-    fd.flush()
+    render_input()
+
+render_input()
 
 try:
     while True:
@@ -324,8 +389,8 @@ try:
 
         elif byte in (127, 8):
             if chars:
-                c = chars.pop(); w = cw(c)
-                fd.write(b"\x08" * w + b" " * w + b"\x08" * w); fd.flush()
+                chars.pop()
+                render_input()
             t = get_typed()
             if t.startswith("/"):
                 cm = get_matches(); ci = min(ci, max(0, len(cm)-1)); vs = 0
@@ -343,8 +408,12 @@ try:
         elif byte == 27:
             ready, _, _ = select.select([fd], [], [], 0.08)
             if not ready:
+                if comp:
+                    erase_comp(); comp = False; cm = []; ci = 0; vs = 0
+                    continue
                 erase_comp()
-                cancelled = True
+                replace_input("")
+                line_cancelled = True
                 break
             b2 = fd.read(1)
             if b2 == b"[":
@@ -360,7 +429,7 @@ try:
             buf_b += b
             try:
                 c = buf_b.decode("utf-8"); chars.append(c); buf_b = b""
-                fd.write(c.encode("utf-8")); fd.flush()
+                render_input()
                 t = get_typed()
                 if t.startswith("/"):
                     cm = get_matches(); ci = 0; vs = 0
@@ -374,7 +443,8 @@ except (KeyboardInterrupt, OSError):
 
 finally:
     erase_comp()
-    fd.write(f"\033[{input_row};1H\033[K".encode())
+    for row in range(composer_top, composer_bottom + 1):
+        fd.write(f"\033[{row};1H\033[K".encode())
     fd.flush()
     try: termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except Exception: pass
@@ -382,6 +452,9 @@ finally:
     except Exception: pass
 
 if cancelled: sys.exit(1)
+if line_cancelled:
+    print("__HARN_REPL_CANCELLED__", end="")
+    sys.exit(0)
 r = get_typed()
 if r: print(r, end="")
 '
@@ -465,6 +538,97 @@ if selected and not cancelled:
     sys.exit(0)
 sys.exit(1)
 ' "$menu_prompt" "$default_idx" "${items[@]}"
+}
+
+# Multi-select menu with space toggle / enter confirm.
+# Usage: _pick_multi_menu "prompt" max_select item1 item2 ...
+# Stdout: selected items, newline-separated; exits 1 on cancel.
+_pick_multi_menu() {
+  local menu_prompt="$1" max_select="${2:-1}"
+  shift 2
+  local items=("$@")
+  [[ ${#items[@]} -eq 0 ]] && return 1
+  python3 -c '
+import sys, tty, termios, select
+
+prompt = sys.argv[1]
+max_select = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+items = sys.argv[3:]
+n = len(items)
+if n == 0:
+    sys.exit(1)
+
+idx = 0
+selected = set()
+fd = open("/dev/tty", "rb+", buffering=0)
+old = termios.tcgetattr(fd)
+tty.setraw(fd)
+
+def render():
+    out = []
+    title = f"  \033[1m{prompt}\033[0m\r\n"
+    hint = f"  \033[2m(↑↓ move  Space toggle  Enter confirm  ESC cancel  max {max_select})\033[0m\r\n\r\n"
+    out.append(title.encode())
+    out.append(hint.encode())
+    for i, item in enumerate(items):
+        mark = "\033[32m●\033[0m" if i in selected else "\033[2m○\033[0m"
+        prefix = "\033[36m❯\033[0m" if i == idx else " "
+        style_start = "\033[1m" if i == idx else "\033[2m"
+        style_end = "\033[0m"
+        out.append(f"  {prefix} {mark} {style_start}{item}{style_end}\r\n".encode())
+    return b"".join(out)
+
+try:
+    total_lines = n + 3
+    fd.write(render())
+    fd.write(f"\033[{total_lines}A".encode())
+    fd.flush()
+    while True:
+      fd.write(render())
+      fd.write(f"\033[{total_lines}A".encode())
+      fd.flush()
+      b = fd.read(1)
+      if not b:
+          break
+      byte = b[0]
+      if byte in (13, 10):
+          if selected:
+              break
+      elif byte == 32:
+          if idx in selected:
+              selected.remove(idx)
+          elif len(selected) < max_select:
+              selected.add(idx)
+      elif byte in (3, 17):
+          selected.clear()
+          raise KeyboardInterrupt
+      elif byte == 27:
+          ready, _, _ = select.select([fd], [], [], 0.08)
+          if not ready:
+              selected.clear()
+              raise KeyboardInterrupt
+          b2 = fd.read(1)
+          if b2 == b"[":
+              b3 = fd.read(1)
+              if b3 == b"A":
+                  idx = (idx - 1) % n
+              elif b3 == b"B":
+                  idx = (idx + 1) % n
+finally:
+    try:
+        fd.write(f"\033[{total_lines}B\r\n".encode())
+        fd.flush()
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        fd.close()
+    except Exception:
+        pass
+
+if not selected:
+    sys.exit(1)
+
+for i in sorted(selected):
+    print(items[i])
+' "$menu_prompt" "$max_select" "${items[@]}"
 }
 
 COPILOT_MODEL_FLAG_SUPPORT=""

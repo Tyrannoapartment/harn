@@ -35,11 +35,12 @@ EOF
 }
 
 cmd_start() {
-  local slug_or_prompt="${1:-}"
+  _parse_team_option "$@"
+  local slug_or_prompt="${HARN_PARSED_ARGS[0]:-}"
   # Internal: when set (by cmd_all/cmd_auto), skip sprint count prompt and use this value
   local _auto_sprint_count="${_HARN_AUTO_SPRINTS:-}"
-  local max_sprints="${2:-10}"
-  local max_sprints_arg="${2:-}"
+  local max_sprints="${HARN_PARSED_ARGS[1]:-10}"
+  local max_sprints_arg="${HARN_PARSED_ARGS[1]:-}"
 
   # No argument — show backlog list and prompt for a number
   if [[ -z "$slug_or_prompt" ]]; then
@@ -75,6 +76,17 @@ cmd_start() {
       log_err "$I18N_START_INVALID $choice"
       exit 1
     fi
+  fi
+
+  if [[ "${HARN_TEAM_COUNT:-0}" -gt 1 ]]; then
+    local selected_streams
+    selected_streams=$(_select_team_workstreams "$HARN_TEAM_COUNT") || return 0
+    local team_streams=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && team_streams+=("$line")
+    done <<< "$selected_streams"
+    _launch_team_session "$HARN_TEAM_COUNT" "Start backlog item: ${slug_or_prompt}" "${team_streams[@]}"
+    return $?
   fi
 
   # ── Ask sprint count (skip in auto/all mode) ────────────────────────────────
@@ -254,35 +266,11 @@ PYEOF
 
   # Planning done → move backlog item from Pending → In Progress
   if [[ -f "$BACKLOG_FILE" ]] && [[ "$slug_or_prompt" != *" "* ]]; then
-    python3 - "$BACKLOG_FILE" "$slug_or_prompt" <<'PYEOF'
-import re, sys
-path, slug = sys.argv[1], sys.argv[2]
-content = open(path).read()
-
-# Move from Pending to In Progress section
-item_pattern = re.compile(
-    r'(- \[ \] \*\*' + re.escape(slug) + r'\*\*[^\n]*(?:\n[ \t]+[^\n]*)*)',
-    re.MULTILINE
-)
-match = item_pattern.search(content)
-if not match:
-    print(f'Item not found: {slug}')
-    sys.exit(0)
-
-item_text = match.group(1)
-# Remove from original location
-content = content[:match.start()] + content[match.end():]
-
-# Add under In Progress section (create if missing)
-if '## In Progress' in content:
-    content = content.replace('## In Progress\n', '## In Progress\n' + item_text + '\n')
-else:
-    content = '## In Progress\n' + item_text + '\n\n' + content
-
-open(path, 'w').write(content)
-print(f'✓ {slug} → In Progress')
-PYEOF
-    log_ok "$(printf "$I18N_PLAN_ITEM_IN_PROGRESS" "$slug_or_prompt")"
+    if backlog_move_item_section "$slug_or_prompt" "In Progress"; then
+      log_ok "$(printf "$I18N_PLAN_ITEM_IN_PROGRESS" "$slug_or_prompt")"
+    else
+      log_warn "Backlog move failed: ${W}$slug_or_prompt${N} → In Progress"
+    fi
 
     if backlog_upsert_plan_line "$slug_or_prompt" "$plan_text"; then
       log_ok "$I18N_PLAN_LINE_UPDATED ${W}$slug_or_prompt${N}"
@@ -716,26 +704,11 @@ Write a completion summary for the full work (max 300 chars):
   local slug_or_prompt
   slug_or_prompt=$(cat "$run_dir/prompt.txt")
   if [[ "$slug_or_prompt" != *" "* && -f "$BACKLOG_FILE" ]]; then
-    python3 - "$BACKLOG_FILE" "$slug_or_prompt" <<'PYEOF'
-import re, sys
-path, slug = sys.argv[1], sys.argv[2]
-content = open(path).read()
-item_pattern = re.compile(
-    r'(- \[[ x]\] \*\*' + re.escape(slug) + r'\*\*[^\n]*(?:\n[ \t]+[^\n]*)*)',
-    re.MULTILINE
-)
-match = item_pattern.search(content)
-if not match:
-    sys.exit(0)
-item_text = re.sub(r'- \[[ ]\]', '- [x]', match.group(1), count=1)
-content = content[:match.start()] + content[match.end():]
-if '## Done' in content:
-    content = content.replace('## Done\n', '## Done\n' + item_text + '\n')
-else:
-    content = content.rstrip() + '\n\n## Done\n' + item_text + '\n'
-open(path, 'w').write(content)
-PYEOF
-    log_ok "$(printf "$I18N_NEXT_DONE" "$slug_or_prompt")"
+    if backlog_move_item_section "$slug_or_prompt" "Done" "true"; then
+      log_ok "$(printf "$I18N_NEXT_DONE" "$slug_or_prompt")"
+    else
+      log_warn "Backlog move failed: ${W}$slug_or_prompt${N} → Done"
+    fi
   fi
 
   # Completion flag (prevents auto resumption)
@@ -794,4 +767,3 @@ cmd_stop() {
     log_ok "$I18N_STOP_DONE"
   fi
 }
-

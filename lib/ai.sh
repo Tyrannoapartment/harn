@@ -78,6 +78,9 @@ refresh_model_cache() {
   command -v codex   &>/dev/null && backends+=("codex")
   command -v gemini  &>/dev/null && backends+=("gemini")
 
+  # Write installed backends list for the web UI
+  printf '%s\n' "${backends[@]}" > "$MODEL_CACHE_DIR/backends.txt"
+
   for backend in "${backends[@]}"; do
     local models=""
     case "$backend" in
@@ -107,6 +110,38 @@ _detect_ai_cli() {
   elif command -v gemini  &>/dev/null; then echo "gemini"
   else echo ""
   fi
+}
+
+_detect_aux_ai_cli() {
+  if [[ -n "${AI_BACKEND_AUXILIARY:-}" ]]; then
+    echo "$AI_BACKEND_AUXILIARY"
+  else
+    _detect_ai_cli
+  fi
+}
+
+_detect_aux_model() {
+  echo "${MODEL_AUXILIARY:-}"
+}
+
+_is_capacity_error_text() {
+  local text="$1"
+  printf '%s' "$text" | grep -qiE 'MODEL_CAPACITY_EXHAUSTED|RESOURCE_EXHAUSTED|No capacity available|rateLimitExceeded'
+}
+
+_fallback_models_for_backend() {
+  local backend="$1" current_model="$2"
+  local models
+  models=$(_get_models_for_backend "$backend" 2>/dev/null || _get_models_for_backend_fallback "$backend")
+  [[ -z "$models" ]] && return 0
+  if [[ -z "$current_model" ]]; then
+    printf '%s\n' "$models" | awk 'NF'
+    return 0
+  fi
+  printf '%s\n' "$models" | awk -v current="$current_model" '
+    $0 == current { seen=1; next }
+    seen && NF { print }
+  '
 }
 
 # Check which AI CLIs are installed; print a guidance message if none
@@ -279,21 +314,95 @@ _pick_role_model() {
 
 # Generate a single prompt using the AI CLI
 _ai_generate() {
-  local ai_cmd="$1" prompt_text="$2" out_file="$3"
+  local ai_cmd="$1" prompt_text="$2" out_file="$3" maybe_model="${4:-}" stream_mode="${5:-quiet}"
+  if [[ "$maybe_model" == "show" || "$maybe_model" == "quiet" ]]; then
+    stream_mode="$maybe_model"
+    maybe_model=""
+  fi
+  [[ -z "$ai_cmd" ]] && ai_cmd=$(_detect_aux_ai_cli)
+  local ai_model="$maybe_model"
+  [[ -z "$ai_model" ]] && ai_model=$(_detect_aux_model)
   local err_file; err_file=$(mktemp)
+  local attempt_model="$ai_model"
   local rc=0
-  case "$ai_cmd" in
-    copilot) copilot --yolo -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
-    claude)  claude -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
-    codex)   echo "$prompt_text" | codex exec - > "$out_file" 2>"$err_file" || rc=$? ;;
-    gemini)  gemini -p "$prompt_text" > "$out_file" 2>"$err_file" || rc=$? ;;
-  esac
-  if [[ $rc -ne 0 ]]; then
+
+  while :; do
+    rc=0
+    if [[ "$stream_mode" == "show" ]]; then
+      case "$ai_cmd" in
+        copilot)
+          local -a cmd=(copilot --yolo -p "$prompt_text")
+          [[ -n "$attempt_model" ]] && cmd+=(--model "$attempt_model")
+          "${cmd[@]}" 2>&1 | tee "$out_file" | tee -a "$LOG_FILE" || rc=${PIPESTATUS[0]}
+          ;;
+        claude)
+          local -a cmd=(claude -p "$prompt_text")
+          [[ -n "$attempt_model" ]] && cmd+=(--model "$attempt_model")
+          "${cmd[@]}" 2>&1 | tee "$out_file" | tee -a "$LOG_FILE" || rc=${PIPESTATUS[0]}
+          ;;
+        codex)
+          local -a cmd=(codex exec)
+          [[ -n "$attempt_model" ]] && cmd+=(-m "$attempt_model")
+          cmd+=(-)
+          echo "$prompt_text" | "${cmd[@]}" 2>&1 | tee "$out_file" | tee -a "$LOG_FILE" || rc=${PIPESTATUS[1]}
+          ;;
+        gemini)
+          local -a cmd=(gemini -p "$prompt_text")
+          [[ -n "$attempt_model" ]] && cmd+=(--model "$attempt_model")
+          "${cmd[@]}" 2>&1 | tee "$out_file" | tee -a "$LOG_FILE" || rc=${PIPESTATUS[0]}
+          ;;
+      esac
+    else
+      : > "$err_file"
+      case "$ai_cmd" in
+        copilot)
+          local -a cmd=(copilot --yolo -p "$prompt_text")
+          [[ -n "$attempt_model" ]] && cmd+=(--model "$attempt_model")
+          "${cmd[@]}" > "$out_file" 2>"$err_file" || rc=$?
+          ;;
+        claude)
+          local -a cmd=(claude -p "$prompt_text")
+          [[ -n "$attempt_model" ]] && cmd+=(--model "$attempt_model")
+          "${cmd[@]}" > "$out_file" 2>"$err_file" || rc=$?
+          ;;
+        codex)
+          local -a cmd=(codex exec)
+          [[ -n "$attempt_model" ]] && cmd+=(-m "$attempt_model")
+          cmd+=(-)
+          echo "$prompt_text" | "${cmd[@]}" > "$out_file" 2>"$err_file" || rc=$?
+          ;;
+        gemini)
+          local -a cmd=(gemini -p "$prompt_text")
+          [[ -n "$attempt_model" ]] && cmd+=(--model "$attempt_model")
+          "${cmd[@]}" > "$out_file" 2>"$err_file" || rc=$?
+          ;;
+      esac
+    fi
+
+    [[ $rc -eq 0 ]] && break
+
+    local combined_error=""
+    combined_error="$(cat "$out_file" 2>/dev/null; printf '\n'; cat "$err_file" 2>/dev/null)"
+    if _is_capacity_error_text "$combined_error"; then
+      local fallback_model
+      fallback_model=$(_fallback_models_for_backend "$ai_cmd" "$attempt_model" | head -1)
+      if [[ -n "$fallback_model" ]]; then
+        log_warn "  ${D}${ai_cmd} capacity exhausted on ${attempt_model:-default} → retrying ${fallback_model}${N}"
+        attempt_model="$fallback_model"
+        continue
+      fi
+    fi
+
+    if [[ "$stream_mode" == "show" ]]; then
+      rm -f "$err_file"
+      return $rc
+    fi
     local err_msg; err_msg=$(cat "$err_file" 2>/dev/null | head -5)
     rm -f "$err_file"
     [[ -n "$err_msg" ]] && log_warn "  ${D}${err_msg}${N}"
     return $rc
-  fi
+  done
+
   rm -f "$err_file"
   return 0
 }
@@ -305,7 +414,7 @@ _generate_custom_prompts() {
   mkdir -p "$custom_dir"
 
   local ai_cmd
-  ai_cmd=$(_detect_ai_cli)
+  ai_cmd=$(_detect_aux_ai_cli)
 
   local roles="planner generator evaluator"
   for role in $roles; do

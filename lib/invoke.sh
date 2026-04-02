@@ -9,7 +9,7 @@ _md_stream() {
 }
 
 _stream_agent_output() {
-  cat
+  _md_stream
 }
 
 # ── Agent invocation ──────────────────────────────────────────────────────────
@@ -19,41 +19,56 @@ invoke_copilot() {
   if [[ "$prompt_mode" == "file" ]]; then
     prompt_text="$(cat "$prompt_input")"
   fi
-
-  local copilot_label="copilot"
-  [[ -n "$copilot_model" ]] && copilot_label="copilot ($copilot_model)"
-
-  local -a copilot_cmd=(copilot --add-dir "$ROOT_DIR" --yolo -p "$prompt_text")
-  [[ -n "$copilot_effort" ]] && copilot_cmd+=(--effort "$copilot_effort")
-  local use_env_model_fallback="false"
-  if [[ -n "$copilot_model" ]]; then
-    if copilot_supports_model_flag; then
-      copilot_cmd+=(--model "$copilot_model")
-    else
-      # Old CLI fallback: specify model via COPILOT_MODEL env var
-      use_env_model_fallback="true"
-      log_warn "copilot --model not supported, using COPILOT_MODEL fallback: $copilot_model"
-    fi
-  fi
-
+  local attempt_model="$copilot_model"
   local exit_code=0
-  if [[ "$use_env_model_fallback" == "true" ]]; then
-    COPILOT_MODEL="$copilot_model" "${copilot_cmd[@]}" 2>&1 \
-      | tee "$output_file" \
-      | tee -a "$LOG_FILE" \
-      | _stream_agent_output || exit_code=${PIPESTATUS[0]}
-  else
-    "${copilot_cmd[@]}" 2>&1 \
-      | tee "$output_file" \
-      | tee -a "$LOG_FILE" \
-      | _stream_agent_output || exit_code=${PIPESTATUS[0]}
-  fi
 
-  if [[ $exit_code -ne 0 ]]; then
+  while :; do
+    : > "$output_file"
+    local copilot_label="copilot"
+    [[ -n "$attempt_model" ]] && copilot_label="copilot ($attempt_model)"
+
+    local -a copilot_cmd=(copilot --add-dir "$ROOT_DIR" --yolo -p "$prompt_text")
+    [[ -n "$copilot_effort" ]] && copilot_cmd+=(--effort "$copilot_effort")
+    local use_env_model_fallback="false"
+    if [[ -n "$attempt_model" ]]; then
+      if copilot_supports_model_flag; then
+        copilot_cmd+=(--model "$attempt_model")
+      else
+        use_env_model_fallback="true"
+        log_warn "copilot --model not supported, using COPILOT_MODEL fallback: $attempt_model"
+      fi
+    fi
+
+    exit_code=0
+    if [[ "$use_env_model_fallback" == "true" ]]; then
+      COPILOT_MODEL="$attempt_model" "${copilot_cmd[@]}" 2>&1 \
+        | tee "$output_file" \
+        | tee -a "$LOG_FILE" \
+        | _stream_agent_output || exit_code=${PIPESTATUS[0]}
+    else
+      "${copilot_cmd[@]}" 2>&1 \
+        | tee "$output_file" \
+        | tee -a "$LOG_FILE" \
+        | _stream_agent_output || exit_code=${PIPESTATUS[0]}
+    fi
+
+    if [[ $exit_code -eq 0 ]]; then
+      log_agent_done "$copilot_label"
+      return 0
+    fi
+
+    local fallback_model
+    fallback_model=$(_fallback_models_for_backend "copilot" "$attempt_model" | head -1)
+    if _is_capacity_error_text "$(cat "$output_file" 2>/dev/null)" && [[ -n "$fallback_model" ]]; then
+      log_warn "copilot capacity exhausted on ${attempt_model:-default} — retrying ${fallback_model}"
+      attempt_model="$fallback_model"
+      continue
+    fi
+
     log_warn "copilot exited abnormally (exit $exit_code) — output: $(basename "$output_file")"
-  fi
-  log_agent_done "$copilot_label"
-  return $exit_code
+    log_agent_done "$copilot_label"
+    return $exit_code
+  done
 }
 
 invoke_role() {
@@ -100,13 +115,6 @@ invoke_role() {
     fi
   fi
 
-  # ── Intelligent Model Routing ────────────────────────────────────────────────
-  if [[ -n "$model" ]]; then
-    local prompt_text_for_routing="$prompt_input"
-    [[ "$prompt_mode" == "file" ]] && prompt_text_for_routing=$(head -c 2000 "$prompt_input" 2>/dev/null || true)
-    model=$(_route_model "$model" "$prompt_text_for_routing" "$role_detail")
-  fi
-
   # Determine backend for this specific role (needed before log_agent_start)
   local backend
   case "$role_detail" in
@@ -137,38 +145,77 @@ invoke_role() {
     claude)
       local prompt_text="$prompt_input"
       [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
-      local -a claude_cmd=(claude -p "$prompt_text")
-      [[ -n "$model" ]] && claude_cmd+=(--model "$model")
-      "${claude_cmd[@]}" 2>&1 \
-        | tee "$output_file" \
-        | tee -a "$LOG_FILE" \
-        | _stream_agent_output || exit_code=${PIPESTATUS[0]}
-      [[ $exit_code -ne 0 ]] && log_warn "claude exited abnormally (exit $exit_code)"
+      local attempt_model="$model"
+      while :; do
+        : > "$output_file"
+        local -a claude_cmd=(claude -p "$prompt_text")
+        [[ -n "$attempt_model" ]] && claude_cmd+=(--model "$attempt_model")
+        "${claude_cmd[@]}" 2>&1 \
+          | tee "$output_file" \
+          | tee -a "$LOG_FILE" \
+          | _stream_agent_output || exit_code=${PIPESTATUS[0]}
+        [[ $exit_code -eq 0 ]] && break
+        local fallback_model
+        fallback_model=$(_fallback_models_for_backend "claude" "$attempt_model" | head -1)
+        if _is_capacity_error_text "$(cat "$output_file" 2>/dev/null)" && [[ -n "$fallback_model" ]]; then
+          log_warn "claude capacity exhausted on ${attempt_model:-default} — retrying ${fallback_model}"
+          attempt_model="$fallback_model"
+          continue
+        fi
+        log_warn "claude exited abnormally (exit $exit_code)"
+        break
+      done
       log_agent_done "$_role_label"
       ;;
     codex)
       local prompt_text="$prompt_input"
       [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
-      local -a codex_cmd=(codex exec)
-      [[ -n "$model" ]] && codex_cmd+=(-m "$model")
-      codex_cmd+=(-)
-      echo "$prompt_text" | "${codex_cmd[@]}" 2>&1 \
-        | tee "$output_file" \
-        | tee -a "$LOG_FILE" \
-        | _stream_agent_output || exit_code=${PIPESTATUS[0]}
-      [[ $exit_code -ne 0 ]] && log_warn "codex exited abnormally (exit $exit_code)"
+      local attempt_model="$model"
+      while :; do
+        : > "$output_file"
+        local -a codex_cmd=(codex exec)
+        [[ -n "$attempt_model" ]] && codex_cmd+=(-m "$attempt_model")
+        codex_cmd+=(-)
+        echo "$prompt_text" | "${codex_cmd[@]}" 2>&1 \
+          | tee "$output_file" \
+          | tee -a "$LOG_FILE" \
+          | _stream_agent_output || exit_code=${PIPESTATUS[0]}
+        [[ $exit_code -eq 0 ]] && break
+        local fallback_model
+        fallback_model=$(_fallback_models_for_backend "codex" "$attempt_model" | head -1)
+        if _is_capacity_error_text "$(cat "$output_file" 2>/dev/null)" && [[ -n "$fallback_model" ]]; then
+          log_warn "codex capacity exhausted on ${attempt_model:-default} — retrying ${fallback_model}"
+          attempt_model="$fallback_model"
+          continue
+        fi
+        log_warn "codex exited abnormally (exit $exit_code)"
+        break
+      done
       log_agent_done "$_role_label"
       ;;
     gemini)
       local prompt_text="$prompt_input"
       [[ "$prompt_mode" == "file" ]] && prompt_text="$(cat "$prompt_input")"
-      local -a gemini_cmd=(gemini -p "$prompt_text")
-      [[ -n "$model" ]] && gemini_cmd+=(--model "$model")
-      "${gemini_cmd[@]}" 2>&1 \
-        | tee "$output_file" \
-        | tee -a "$LOG_FILE" \
-        | _stream_agent_output || exit_code=${PIPESTATUS[0]}
-      [[ $exit_code -ne 0 ]] && log_warn "gemini exited abnormally (exit $exit_code)"
+      local attempt_model="$model"
+      while :; do
+        : > "$output_file"
+        local -a gemini_cmd=(gemini -p "$prompt_text")
+        [[ -n "$attempt_model" ]] && gemini_cmd+=(--model "$attempt_model")
+        "${gemini_cmd[@]}" 2>&1 \
+          | tee "$output_file" \
+          | tee -a "$LOG_FILE" \
+          | _stream_agent_output || exit_code=${PIPESTATUS[0]}
+        [[ $exit_code -eq 0 ]] && break
+        local fallback_model
+        fallback_model=$(_fallback_models_for_backend "gemini" "$attempt_model" | head -1)
+        if _is_capacity_error_text "$(cat "$output_file" 2>/dev/null)" && [[ -n "$fallback_model" ]]; then
+          log_warn "gemini capacity exhausted on ${attempt_model:-default} — retrying ${fallback_model}"
+          attempt_model="$fallback_model"
+          continue
+        fi
+        log_warn "gemini exited abnormally (exit $exit_code)"
+        break
+      done
       log_agent_done "$_role_label"
       ;;
     copilot|*)

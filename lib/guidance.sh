@@ -233,8 +233,6 @@ _inject_guidance() {
 
 _classify_guidance() {
   local msg="$1"
-  local ai_cmd
-  ai_cmd=$(_detect_ai_cli 2>/dev/null) || ai_cmd="copilot"
   local prompt="다음 메시지의 의도를 implement, evaluate, plan, context 중 정확히 하나로만 답해줘 (단어 하나만):
 
 메시지: $msg
@@ -244,11 +242,12 @@ _classify_guidance() {
 - plan: 계획/스프린트/목표/변경 관련
 - context: 위에 해당없는 배경지식/설정"
 
-  local result=""
-  case "$ai_cmd" in
-    copilot) result=$(copilot --yolo -p "$prompt" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]') ;;
-    claude)  result=$(claude -p "$prompt" 2>/dev/null | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]') ;;
-  esac
+  local result="" tmp_file
+  tmp_file=$(mktemp)
+  if _ai_generate "" "$prompt" "$tmp_file" "quiet" >/dev/null 2>&1; then
+    result=$(tr -d '[:space:]' < "$tmp_file" | tr '[:upper:]' '[:lower:]')
+  fi
+  rm -f "$tmp_file"
 
   case "${result:0:10}" in
     *implement*) echo "implement" ;;

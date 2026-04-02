@@ -92,6 +92,7 @@ cmd_doctor() {
     echo -e "  ${I18N_DOCTOR_GIT_INTEGRATION}:  ${W}${GIT_ENABLED:-false}${N}"
     echo -e "  ${I18N_DOCTOR_SPRINT_COUNT}:     ${W}${SPRINT_COUNT:-1}${N} (set per run at start)"
     echo -e "  ${I18N_DOCTOR_AI_BACKEND}:       ${W}${AI_BACKEND:-auto}${N}"
+    echo -e "  Backend AI:        ${W}${AI_BACKEND_AUXILIARY:-${AI_BACKEND:-auto}}${N} / ${W}${MODEL_AUXILIARY:-auto}${N}"
   else
     echo -e "  ${D}○${N} .harn_config:     ${I18N_DOCTOR_CONFIG_NOT_FOUND}"
   fi
@@ -103,6 +104,7 @@ cmd_doctor() {
 
   # ── Models ───────────────────────────────────────────────────────────────────
   echo -e "${W}▸ ${I18N_DOCTOR_MODELS}${N}"
+  echo -e "  Backend AI:          ${W}${MODEL_AUXILIARY:-auto}${N}"
   echo -e "  Planner:              ${W}${COPILOT_MODEL_PLANNER:-default}${N}"
   echo -e "  Generator (contract): ${W}${COPILOT_MODEL_GENERATOR_CONTRACT:-default}${N}"
   echo -e "  Generator (impl):     ${W}${COPILOT_MODEL_GENERATOR_IMPL:-default}${N}"

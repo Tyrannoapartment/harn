@@ -145,11 +145,11 @@ _i18n_load() {
     # cmd_backlog
     I18N_BACKLOG_TITLE="대기 중인 백로그 항목:"
     I18N_BACKLOG_EMPTY="(없음 — 모두 완료!)"
-    I18N_BACKLOG_RUN="실행: ${W}harn start${N} — 항목을 선택해 전체 루프를 시작하세요"
+    I18N_BACKLOG_RUN="실행: ${W}/start${N} — 항목을 선택해 전체 루프를 시작하세요"
     # cmd_start
     I18N_START_SELECT_ITEM="백로그 항목 선택"
     I18N_START_NO_PENDING="대기 중인 항목이 없습니다. 먼저 항목을 추가하세요."
-    I18N_START_DISCOVER_HINT="항목 발굴: harn discover"
+    I18N_START_DISCOVER_HINT="항목 발굴: /discover"
     I18N_START_ENTER_NUM="번호를 입력하세요 (1–%s): "
     I18N_START_SPRINT_COUNT_PROMPT="스프린트 수 [1]: "
     I18N_START_SPRINT_COUNT_INVALID="잘못된 스프린트 수 — 1로 설정"
@@ -463,11 +463,11 @@ _i18n_load() {
     # cmd_backlog
     I18N_BACKLOG_TITLE="Pending backlog items:"
     I18N_BACKLOG_EMPTY="(none — all done!)"
-    I18N_BACKLOG_RUN="Run: ${W}harn start${N} — select a backlog item and run the full loop"
+    I18N_BACKLOG_RUN="Run: ${W}/start${N} — select a backlog item and run the full loop"
     # cmd_start
     I18N_START_SELECT_ITEM="Select backlog item"
     I18N_START_NO_PENDING="No pending items in backlog. Add an item first."
-    I18N_START_DISCOVER_HINT="To discover items: harn discover"
+    I18N_START_DISCOVER_HINT="To discover items: /discover"
     I18N_START_ENTER_NUM="Enter number (1–%s): "
     I18N_START_SPRINT_COUNT_PROMPT="Number of sprints [1]: "
     I18N_START_SPRINT_COUNT_INVALID="Invalid sprint count — defaulting to 1"
@@ -691,6 +691,8 @@ load_config() {
 
   # Apply AI_BACKEND from config (env override takes precedence)
   AI_BACKEND="${HARN_AI_BACKEND:-${AI_BACKEND:-}}"
+  AI_BACKEND_AUXILIARY="${HARN_AI_BACKEND_AUXILIARY:-${AI_BACKEND_AUXILIARY:-$AI_BACKEND}}"
+  MODEL_AUXILIARY="${HARN_MODEL_AUXILIARY:-${MODEL_AUXILIARY:-}}"
 
   # Per-role backend overrides (fall back to global AI_BACKEND)
   AI_BACKEND_PLANNER="${AI_BACKEND_PLANNER:-$AI_BACKEND}"
@@ -725,4 +727,3 @@ load_config() {
     fi
   fi
 }
-
