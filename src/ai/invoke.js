@@ -226,6 +226,7 @@ export async function invokeRole({
   const cwd = projectRoot || runDir || process.cwd();
 
   // 7. Invoke AI CLI
+  const stopOnLimit = config.STOP_ON_LIMIT === 'true';
   const result = await aiGenerate({
     prompt: enrichedPrompt,
     backend,
@@ -235,6 +236,7 @@ export async function invokeRole({
     addDir: projectRoot || undefined,
     harnDir,
     yolo,
+    stopOnLimit,
   });
 
   return {
@@ -300,6 +302,7 @@ export async function invokeWithStreaming({
   const cwd = projectRoot || runDir || process.cwd();
 
   // 7. Invoke with streaming
+  const stopOnLimit = config.STOP_ON_LIMIT === 'true';
   const result = await aiGenerateStreaming({
     prompt: enrichedPrompt,
     backend,
@@ -310,6 +313,7 @@ export async function invokeWithStreaming({
     harnDir,
     yolo,
     onData,
+    stopOnLimit,
   });
 
   return {

@@ -44,6 +44,17 @@ export interface BackendInfo {
   isDefault: boolean
 }
 
+export interface WrapperInfo {
+  installed: boolean
+  version: string
+  enabled: boolean
+}
+
+export interface WrappersStatus {
+  omc: WrapperInfo
+  omx: WrapperInfo
+}
+
 export interface McpServerConfig {
   type?: string
   url?: string
@@ -116,6 +127,10 @@ export const api = {
   // Backends (AI CLI health)
   getBackends: () =>
     fetchJSON<{ backends: BackendInfo[]; detected: string }>('/backends'),
+
+  // CLI Wrappers (omc / omx)
+  getWrappers: () =>
+    fetchJSON<WrappersStatus>('/wrappers'),
 
   // Prompts
   getPrompts: () =>

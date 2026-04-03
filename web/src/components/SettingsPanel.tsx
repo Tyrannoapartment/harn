@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { api, type BackendInfo, type McpServer } from '@/lib/api'
+import { api, type BackendInfo, type McpServer, type WrappersStatus } from '@/lib/api'
 import { useI18n } from '@/hooks/useI18n'
 import { setLang } from '@/lib/i18n'
 
@@ -39,6 +39,9 @@ interface Config {
   AUXILIARY_MODEL?: string
   MAX_ITERATIONS?: string
   MODEL_ROUTING?: string
+  STOP_ON_LIMIT?: string
+  OMC_ENABLED?: string
+  OMX_ENABLED?: string
   HARN_LANG?: string
   [key: string]: string | undefined
 }
@@ -62,6 +65,7 @@ export function SettingsPanel() {
   const [refreshing, setRefreshing] = useState(false)
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [loadingBackends, setLoadingBackends] = useState(true)
+  const [wrappers, setWrappers] = useState<WrappersStatus | null>(null)
   // Tracks which backend each model field was explicitly selected from
   const [modelSourceMap, setModelSourceMap] = useState<Record<string, string>>({})
 
@@ -92,6 +96,7 @@ export function SettingsPanel() {
       setBackends(data.backends || [])
       setDetected(data.detected || '')
     }).catch(() => {}).finally(() => setLoadingBackends(false))
+    api.getWrappers().then(setWrappers).catch(() => {})
   }, [])
 
   const set = (key: string, value: string) => {
@@ -333,6 +338,7 @@ export function SettingsPanel() {
               <Skeleton className="h-8 w-full" />
             </div>
           ) : (
+            <>
             <div className="space-y-1">
               <Label className="text-xs">{t('settings.maxIterations')}</Label>
               <Input
@@ -344,6 +350,19 @@ export function SettingsPanel() {
                 onChange={(e) => set('MAX_ITERATIONS', e.target.value)}
               />
             </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-xs">{t('settings.stopOnLimit')}</Label>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {t('settings.stopOnLimitDesc')}
+                </p>
+              </div>
+              <Switch
+                checked={(config.STOP_ON_LIMIT || 'true') === 'true'}
+                onCheckedChange={(v) => set('STOP_ON_LIMIT', v ? 'true' : 'false')}
+              />
+            </div>
+            </>
           )}
         </div>
 
@@ -377,6 +396,55 @@ export function SettingsPanel() {
         </div>
 
         <Separator />
+
+        {/* CLI Wrappers (omc / omx) */}
+        {wrappers && (wrappers.omc.installed || wrappers.omx.installed) && (
+          <>
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('settings.wrappers')}</h3>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{t('settings.wrappersDesc')}</p>
+            </div>
+
+            {wrappers.omc.installed && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">{t('settings.omcLabel')}</Label>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {t('settings.omcDesc')}
+                    {wrappers.omc.version && (
+                      <span className="ml-1 font-mono text-muted-foreground/60">v{wrappers.omc.version}</span>
+                    )}
+                  </p>
+                </div>
+                <Switch
+                  checked={(config.OMC_ENABLED || 'false') === 'true'}
+                  onCheckedChange={(v) => set('OMC_ENABLED', v ? 'true' : 'false')}
+                />
+              </div>
+            )}
+
+            {wrappers.omx.installed && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-xs">{t('settings.omxLabel')}</Label>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {t('settings.omxDesc')}
+                    {wrappers.omx.version && (
+                      <span className="ml-1 font-mono text-muted-foreground/60">v{wrappers.omx.version}</span>
+                    )}
+                  </p>
+                </div>
+                <Switch
+                  checked={(config.OMX_ENABLED || 'false') === 'true'}
+                  onCheckedChange={(v) => set('OMX_ENABLED', v ? 'true' : 'false')}
+                />
+              </div>
+            )}
+          </div>
+          <Separator />
+          </>
+        )}
 
         {/* Language */}
         <div className="space-y-3">

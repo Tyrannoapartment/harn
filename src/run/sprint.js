@@ -18,7 +18,7 @@ import { logInfo, logOk, logWarn, logErr, logStep } from '../core/logger.js';
 import { t } from '../core/i18n.js';
 import { progressBar, formatElapsed } from './progress.js';
 
-import { detectAiCli } from '../ai/backend.js';
+import { detectAiCli, RateLimitExhaustedError } from '../ai/backend.js';
 
 /**
  * Main scope-based sprint loop: contract → implement → evaluate → next.
@@ -112,6 +112,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
 
     emitStatus('starting', { totalScopes });
     let currentScope = currentScopeNum(runDir);
+    let rateLimited = false;
 
     while (currentScope <= totalScopes && !aborted) {
       const sDir = scopeDir(runDir, currentScope);
@@ -130,6 +131,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
         continue;
       }
 
+      try {
       // ── Contract phase ──
       const contractFile = join(sDir, 'contract.md');
       if (!existsSync(contractFile)) {
@@ -209,9 +211,22 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
 
       if (complete) break;
       currentScope = currentScopeNum(runDir);
+
+      } catch (err) {
+        if (err instanceof RateLimitExhaustedError) {
+          rateLimited = true;
+          aborted = true;
+          logErr(`Rate limit reached — all fallback models exhausted (${err.lastModel}). Stopping sprint.`);
+          if (onLog) onLog(`⚠️ Rate limit: ${err.message}`);
+          break;
+        }
+        throw err;
+      }
     }
 
-    if (aborted) {
+    if (rateLimited) {
+      if (sse) sse.broadcastStatus({ state: 'waiting', phase: 'rate_limited' });
+    } else if (aborted) {
       logWarn('Sprint loop aborted.');
       if (sse) sse.broadcastStatus({ state: 'waiting', phase: 'stopped' });
     } else {

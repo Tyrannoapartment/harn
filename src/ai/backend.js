@@ -18,10 +18,47 @@ export function killActiveChild() {
   return false;
 }
 
+// ── CLI wrapper config (omc for claude, omx for codex) ────────────────────────
+let _omcEnabled = false;
+let _omxEnabled = false;
+
+/** Update wrapper flags. Call after config load/save. */
+export function setWrapperConfig({ omcEnabled = false, omxEnabled = false } = {}) {
+  _omcEnabled = omcEnabled;
+  _omxEnabled = omxEnabled;
+}
+
+/** Check installation status of omc and omx CLI wrappers. */
+export function checkWrapperStatus() {
+  const check = (cmd) => {
+    const path = which(cmd);
+    if (!path) return { installed: false, version: '' };
+    try {
+      const raw = execFileSync(cmd, ['--version'], {
+        encoding: 'utf-8', timeout: 5000, env: CLEAN_ENV,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim().split('\n')[0];
+      return { installed: true, version: raw || 'unknown' };
+    } catch {
+      return { installed: true, version: 'unknown' };
+    }
+  };
+  return { omc: check('omc'), omx: check('omx') };
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const CAPACITY_ERROR_RE =
   /MODEL_CAPACITY_EXHAUSTED|RESOURCE_EXHAUSTED|No capacity available|rateLimitExceeded/i;
+
+/** Custom error thrown when all fallback models are rate-limited. */
+export class RateLimitExhaustedError extends Error {
+  constructor(lastModel) {
+    super(`All models exhausted due to rate limits (last: ${lastModel})`);
+    this.name = 'RateLimitExhaustedError';
+    this.lastModel = lastModel;
+  }
+}
 
 const FALLBACK_MODELS = {
   copilot: [
@@ -361,6 +398,7 @@ export async function aiGenerate({
   addDir,
   harnDir,
   yolo = false,
+  stopOnLimit = false,
 }) {
   if (!backend) backend = detectAuxAiCli();
   if (!backend) throw new Error('No AI CLI found on PATH');
@@ -391,6 +429,10 @@ export async function aiGenerate({
         attemptModel = fallbacks[0];
         continue;
       }
+      // No fallbacks remain
+      if (stopOnLimit) {
+        throw new RateLimitExhaustedError(attemptModel);
+      }
     }
 
     return { output, exitCode, model: attemptModel };
@@ -419,13 +461,13 @@ function _runCli({ backend, prompt, model, cwd, timeout, effort, addDir, yolo })
         break;
       }
       case 'claude': {
-        cmd = 'claude';
+        cmd = _omcEnabled && which('omc') ? 'omc' : 'claude';
         args = ['-p', prompt];
         if (normalizedModel) args.push('--model', normalizedModel);
         break;
       }
       case 'codex': {
-        cmd = 'codex';
+        cmd = _omxEnabled && which('omx') ? 'omx' : 'codex';
         args = ['exec'];
         if (normalizedModel) args.push('-m', normalizedModel);
         args.push('-');
@@ -499,6 +541,7 @@ export async function aiGenerateStreaming({
   harnDir,
   onData,
   yolo = false,
+  stopOnLimit = false,
 }) {
   if (!backend) backend = detectAuxAiCli();
   if (!backend) throw new Error('No AI CLI found on PATH');
@@ -529,6 +572,10 @@ export async function aiGenerateStreaming({
         attemptModel = fallbacks[0];
         continue;
       }
+      // No fallbacks remain
+      if (stopOnLimit) {
+        throw new RateLimitExhaustedError(attemptModel);
+      }
     }
 
     return { output, exitCode, model: attemptModel };
@@ -553,13 +600,13 @@ function _runCliStreaming({ backend, prompt, model, cwd, timeout, effort, addDir
         break;
       }
       case 'claude': {
-        cmd = 'claude';
+        cmd = _omcEnabled && which('omc') ? 'omc' : 'claude';
         args = ['-p', prompt];
         if (normalizedModel) args.push('--model', normalizedModel);
         break;
       }
       case 'codex': {
-        cmd = 'codex';
+        cmd = _omxEnabled && which('omx') ? 'omx' : 'codex';
         args = ['exec'];
         if (normalizedModel) args.push('-m', normalizedModel);
         args.push('-');

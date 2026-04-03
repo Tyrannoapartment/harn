@@ -11,7 +11,7 @@ import { loadConfig, saveConfig, getBacklogDir } from '../../core/config.js';
 import { pendingSlugs, addItem, removeItem, updateItem, readBacklog, ensureBacklogDir } from '../../backlog/backlog.js';
 import { listRuns, currentRunId } from '../../run/run.js';
 import { memoryLoad, memoryAppend } from '../../features/memory.js';
-import { aiGenerate, getModelsForBackend, refreshModelCache, detectAiCli, getFallbackModels, checkBackendHealth, getAllBackendModels, killActiveChild } from '../../ai/backend.js';
+import { aiGenerate, getModelsForBackend, refreshModelCache, detectAiCli, getFallbackModels, checkBackendHealth, getAllBackendModels, killActiveChild, checkWrapperStatus, setWrapperConfig } from '../../ai/backend.js';
 import { chat as assistantChat } from '../../features/assistant.js';
 import { getMcpConfigs, getMcpSummary, setMcpServer, removeMcpServer } from '../../features/mcp.js';
 
@@ -21,6 +21,18 @@ const SCRIPT_DIR = resolve(__dirname, '..', '..', '..');
 
 export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, commandRunner }) {
   const router = Router();
+
+  // Sync wrapper config from persisted config on startup
+  const _syncWrappers = () => {
+    try {
+      const cfg = loadConfig(configFile);
+      setWrapperConfig({
+        omcEnabled: cfg.OMC_ENABLED === 'true',
+        omxEnabled: cfg.OMX_ENABLED === 'true',
+      });
+    } catch { /* ignore */ }
+  };
+  _syncWrappers();
 
   // ─── Health ───
   router.get('/health', (_req, res) => {
@@ -207,6 +219,7 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
     const current = loadConfig(configFile);
     const updated = { ...current, ...req.body };
     saveConfig(configFile, updated);
+    _syncWrappers();
     res.json(updated);
   });
 
@@ -256,6 +269,16 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
       isDefault: h.backend === detected,
     }));
     res.json({ backends: result, detected });
+  });
+
+  // ─── CLI Wrappers (omc / omx) ───
+  router.get('/wrappers', (_req, res) => {
+    const status = checkWrapperStatus();
+    const config = loadConfig(configFile);
+    res.json({
+      omc: { ...status.omc, enabled: config.OMC_ENABLED === 'true' },
+      omx: { ...status.omx, enabled: config.OMX_ENABLED === 'true' },
+    });
   });
 
   // ─── Prompts ───

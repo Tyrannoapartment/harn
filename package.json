@@ -1,6 +1,6 @@
 {
   "name": "@tyrannoapartment/harn",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "AI multi-agent sprint development loop orchestrator (Planner → Generator → Evaluator)",
   "type": "module",
   "keywords": [

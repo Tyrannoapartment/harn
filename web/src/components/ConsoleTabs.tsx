@@ -141,6 +141,7 @@ export function ConsoleTabs() {
       next: { label: 'Sprint', emoji: '➡️' },
       complete: { label: 'Sprint Loop', emoji: '✅' },
       stopped: { label: 'Sprint Loop', emoji: '🛑' },
+      rate_limited: { label: 'Sprint Loop', emoji: '⚠️' },
     }
 
     const PHASE_DESC: Record<string, string> = {
@@ -152,6 +153,7 @@ export function ConsoleTabs() {
       next: 'Moving to next sprint…',
       complete: 'All sprints complete!',
       stopped: 'Sprint loop stopped.',
+      rate_limited: 'Stopped — AI usage rate limit reached.',
     }
 
     return onStatus((s) => {
@@ -242,6 +244,35 @@ export function ConsoleTabs() {
     if (e.key === 'Enter') commitEdit()
     if (e.key === 'Escape') setEditingId(null)
   }, [commitEdit])
+
+  const [panelWidth, setPanelWidth] = useState(400)
+  const isDragging = useRef(false)
+  const dragStartX = useRef(0)
+  const dragStartWidth = useRef(400)
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    dragStartX.current = e.clientX
+    dragStartWidth.current = panelWidth
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return
+      const delta = dragStartX.current - ev.clientX
+      const newWidth = Math.min(Math.max(dragStartWidth.current + delta, 250), 900)
+      setPanelWidth(newWidth)
+    }
+    const onUp = () => {
+      isDragging.current = false
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [panelWidth])
 
   return (
     <div className="flex h-full">
@@ -350,11 +381,14 @@ export function ConsoleTabs() {
         <Composer loading={loading} onSubmit={handleSubmit} />
       </div>
 
-      {/* ── Right: Tabbed Panel (toggleable) ── */}
+      {/* ── Right: Tabbed Panel (toggleable, resizable) ── */}
       {logOpen && (
         <>
-          <div className="w-px bg-border shrink-0" />
-          <div className="w-[400px] shrink-0 overflow-hidden">
+          <div
+            className="w-1 bg-border shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+            onMouseDown={handleDragStart}
+          />
+          <div style={{ width: panelWidth }} className="shrink-0 overflow-hidden">
             <RightPanel
               rawLines={rawLines}
               fileChanges={fileChanges}
