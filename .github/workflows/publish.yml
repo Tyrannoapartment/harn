@@ -6,25 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  publish-npm:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Make harn.sh executable
-        run: chmod +x harn.sh
-
-      - name: Publish to npmjs.com
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  publish-github:
+  build-and-publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,11 +17,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Build web frontend
+        run: npm run build:web
+
+      - name: Publish to npmjs.com
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
           registry-url: 'https://npm.pkg.github.com'
           scope: '@tyrannoapartment'
-
-      - name: Make harn.sh executable
-        run: chmod +x harn.sh
 
       - name: Publish to GitHub Packages
         run: npm publish
