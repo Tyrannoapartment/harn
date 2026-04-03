@@ -50,6 +50,19 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
+  // Check for stop signal (.stop file written by API)
+  const checkStop = () => {
+    if (aborted) return true;
+    const stopFile = join(runDir, '.stop');
+    if (existsSync(stopFile)) {
+      try { unlinkSync(stopFile); } catch { /* ignore */ }
+      aborted = true;
+      logWarn('Stop signal received — aborting sprint loop.');
+      return true;
+    }
+    return false;
+  };
+
   // Helper to broadcast status/progress
   const emitStatus = (phase, extra = {}) => {
     if (sse) sse.broadcastStatus({
@@ -93,6 +106,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
       // Contract phase
       const contractFile = join(sDir, 'contract.md');
       if (!existsSync(contractFile)) {
+        if (checkStop()) break;
         emitStatus('contract', { sprint: currentSprint, totalSprints });
         emitProgress(currentSprint, totalSprints, 'contract', 0);
         await cmdContract({ runDir, sprintNum: currentSprint, config, harnDir, scriptDir, onLog, onData, onResult });
@@ -103,6 +117,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
       let passed = false;
 
       while (iter <= maxIterations && !aborted) {
+        if (checkStop()) break;
         setSprintIteration(runDir, currentSprint, iter);
         logInfo(`${t('SPRINT_START')} ${currentSprint} — iteration ${iter}/${maxIterations}`);
 
@@ -110,6 +125,8 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
         emitStatus('implement', { sprint: currentSprint, iteration: iter, totalSprints });
         emitProgress(currentSprint, totalSprints, 'implement', iter);
         await cmdImplement({ runDir, sprintNum: currentSprint, config, harnDir, scriptDir, onLog, onData, onResult });
+
+        if (checkStop()) break;
 
         // Evaluate
         emitStatus('evaluate', { sprint: currentSprint, iteration: iter, totalSprints });

@@ -5,6 +5,19 @@ import { execFileSync, execFile, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+// ── Active child process tracking ─────────────────────────────────────────────
+let _activeChild = null;
+
+/** Kill the currently running AI child process, if any. */
+export function killActiveChild() {
+  if (_activeChild && !_activeChild.killed) {
+    try { _activeChild.kill('SIGTERM'); } catch { /* ignore */ }
+    _activeChild = null;
+    return true;
+  }
+  return false;
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const CAPACITY_ERROR_RE =
@@ -411,6 +424,7 @@ function _runCli({ backend, prompt, model, cwd, timeout, effort, addDir }) {
       stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       timeout,
     });
+    _activeChild = child;
 
     const stdout = [];
     const stderr = [];
@@ -424,6 +438,7 @@ function _runCli({ backend, prompt, model, cwd, timeout, effort, addDir }) {
     }
 
     child.on('close', (code) => {
+      if (_activeChild === child) _activeChild = null;
       resolve({
         output: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
@@ -432,6 +447,7 @@ function _runCli({ backend, prompt, model, cwd, timeout, effort, addDir }) {
     });
 
     child.on('error', (err) => {
+      if (_activeChild === child) _activeChild = null;
       resolve({
         output: '',
         stderr: err.message,
@@ -538,6 +554,7 @@ function _runCliStreaming({ backend, prompt, model, cwd, timeout, effort, addDir
       stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       timeout,
     });
+    _activeChild = child;
 
     const stdout = [];
     const stderr = [];
@@ -555,6 +572,7 @@ function _runCliStreaming({ backend, prompt, model, cwd, timeout, effort, addDir
     }
 
     child.on('close', (code) => {
+      if (_activeChild === child) _activeChild = null;
       resolve({
         output: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
@@ -563,6 +581,7 @@ function _runCliStreaming({ backend, prompt, model, cwd, timeout, effort, addDir
     });
 
     child.on('error', (err) => {
+      if (_activeChild === child) _activeChild = null;
       resolve({ output: '', stderr: err.message, exitCode: 1 });
     });
   });

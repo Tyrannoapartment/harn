@@ -11,7 +11,7 @@ import { loadConfig, saveConfig, getSprintDir } from '../../core/config.js';
 import { pendingSlugs, addItem, removeItem, updateItem, readBacklog, ensureSprintDir } from '../../backlog/backlog.js';
 import { listRuns, currentRunId } from '../../run/run.js';
 import { memoryLoad, memoryAppend } from '../../features/memory.js';
-import { aiGenerate, getModelsForBackend, refreshModelCache, detectAiCli, getFallbackModels, checkBackendHealth, getAllBackendModels } from '../../ai/backend.js';
+import { aiGenerate, getModelsForBackend, refreshModelCache, detectAiCli, getFallbackModels, checkBackendHealth, getAllBackendModels, killActiveChild } from '../../ai/backend.js';
 import { chat as assistantChat } from '../../features/assistant.js';
 import { getMcpConfigs, getMcpSummary, setMcpServer, removeMcpServer } from '../../features/mcp.js';
 
@@ -331,14 +331,18 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
   });
 
   router.post('/command/stop', (_req, res) => {
+    // Kill the active AI child process immediately
+    const killed = killActiveChild();
+
+    // Also write .stop flag so the sprint loop breaks
     const curDir = (() => { const id = currentRunId(harnDir); return id ? join(harnDir, "runs", id) : null; })();
     if (curDir) {
       writeFileSync(join(curDir, '.stop'), '');
-      sse.broadcastLog('Stop signal sent');
-      res.json({ ok: true });
-    } else {
-      res.json({ ok: false, error: 'no active run' });
     }
+
+    sse.broadcastLog('Stop signal sent — killing active AI process');
+    sse.broadcastStatus({ state: 'waiting', phase: 'stopped', timestamp: Date.now() });
+    res.json({ ok: true, killed });
   });
 
   // ─── Logs SSE ───
