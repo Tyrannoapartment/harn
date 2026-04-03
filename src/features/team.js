@@ -32,7 +32,7 @@ export function cmdTeam(count, task, { config, rootDir, harnDir }) {
 
   const session = `harn-team-${Date.now()}`;
   const backend = config.AI_BACKEND || 'copilot';
-  const model = config.COPILOT_MODEL_GENERATOR_IMPL || 'claude-opus-4.6';
+  const model = config.GENERATOR_IMPL_MODEL || 'claude-opus-4.6';
 
   // Create tmux session with first pane
   execSync(`tmux new-session -d -s ${session} -x 200 -y 50`, { stdio: 'pipe' });

@@ -84,6 +84,27 @@ function writeCacheLines(path, lines) {
   writeFileSync(path, deduped.join('\n') + '\n', 'utf8');
 }
 
+// ── Model name normalization ────────────────────────────────────────────────
+//
+// Copilot CLI uses dots:  claude-haiku-4.5, claude-sonnet-4.6
+// Claude CLI uses hyphens: claude-haiku-4-5, claude-sonnet-4-6
+// We store with dots (copilot format) and convert as needed.
+
+/**
+ * Normalize a model name for the target backend CLI.
+ * claude CLI: dots → hyphens (e.g. claude-sonnet-4.6 → claude-sonnet-4-6)
+ * copilot CLI: keep as-is (dots are fine)
+ */
+function normalizeModelForBackend(model, backend) {
+  if (!model) return model;
+  if (backend === 'claude') {
+    // Convert version dots to hyphens: claude-sonnet-4.6 → claude-sonnet-4-6
+    // Only for claude-family models
+    return model.replace(/^(claude-[a-z]+-\d+)\.(\d+)/, '$1-$2');
+  }
+  return model;
+}
+
 // ── Exported functions ───────────────────────────────────────────────────────
 
 /**
@@ -106,7 +127,7 @@ export function detectAiCli() {
  * @returns {string} backend name
  */
 export function detectAuxAiCli() {
-  if (process.env.AI_BACKEND_AUXILIARY) return process.env.AI_BACKEND_AUXILIARY;
+  if (process.env.AUXILIARY_BACKEND) return process.env.AUXILIARY_BACKEND;
   return detectAiCli();
 }
 
@@ -339,11 +360,12 @@ export async function aiGenerate({
   effort,
   addDir,
   harnDir,
+  yolo = false,
 }) {
   if (!backend) backend = detectAuxAiCli();
   if (!backend) throw new Error('No AI CLI found on PATH');
 
-  let attemptModel = model || process.env.MODEL_AUXILIARY || '';
+  let attemptModel = model || process.env.AUXILIARY_MODEL || '';
 
   while (true) {
     const { output, exitCode, stderr } = await _runCli({
@@ -354,6 +376,7 @@ export async function aiGenerate({
       timeout,
       effort,
       addDir,
+      yolo,
     });
 
     if (exitCode === 0) {
@@ -378,31 +401,33 @@ export async function aiGenerate({
  * Run a single AI CLI invocation.
  * @returns {Promise<{output: string, stderr: string, exitCode: number}>}
  */
-function _runCli({ backend, prompt, model, cwd, timeout, effort, addDir }) {
+function _runCli({ backend, prompt, model, cwd, timeout, effort, addDir, yolo }) {
   return new Promise((resolve) => {
     let cmd, args;
     let useStdin = false;
+    const normalizedModel = normalizeModelForBackend(model, backend);
 
     switch (backend) {
       case 'copilot': {
         cmd = 'copilot';
         args = [];
         if (addDir) args.push('--add-dir', addDir);
-        args.push('--yolo', '-p', prompt);
-        if (model) args.push('--model', model);
+        if (yolo) args.push('--yolo');
+        args.push('-p', prompt);
+        if (normalizedModel) args.push('--model', normalizedModel);
         if (effort) args.push('--effort', effort);
         break;
       }
       case 'claude': {
         cmd = 'claude';
         args = ['-p', prompt];
-        if (model) args.push('--model', model);
+        if (normalizedModel) args.push('--model', normalizedModel);
         break;
       }
       case 'codex': {
         cmd = 'codex';
         args = ['exec'];
-        if (model) args.push('-m', model);
+        if (normalizedModel) args.push('-m', normalizedModel);
         args.push('-');
         useStdin = true;
         break;
@@ -410,7 +435,7 @@ function _runCli({ backend, prompt, model, cwd, timeout, effort, addDir }) {
       case 'gemini': {
         cmd = 'gemini';
         args = ['-p', prompt];
-        if (model) args.push('--model', model);
+        if (normalizedModel) args.push('--model', normalizedModel);
         break;
       }
       default:
@@ -473,11 +498,12 @@ export async function aiGenerateStreaming({
   addDir,
   harnDir,
   onData,
+  yolo = false,
 }) {
   if (!backend) backend = detectAuxAiCli();
   if (!backend) throw new Error('No AI CLI found on PATH');
 
-  let attemptModel = model || process.env.MODEL_AUXILIARY || '';
+  let attemptModel = model || process.env.AUXILIARY_MODEL || '';
 
   while (true) {
     const { output, exitCode, stderr } = await _runCliStreaming({
@@ -488,6 +514,7 @@ export async function aiGenerateStreaming({
       timeout,
       effort,
       addDir,
+      yolo,
       onData,
     });
 
@@ -508,31 +535,33 @@ export async function aiGenerateStreaming({
   }
 }
 
-function _runCliStreaming({ backend, prompt, model, cwd, timeout, effort, addDir, onData }) {
+function _runCliStreaming({ backend, prompt, model, cwd, timeout, effort, addDir, yolo, onData }) {
   return new Promise((resolve) => {
     let cmd, args;
     let useStdin = false;
+    const normalizedModel = normalizeModelForBackend(model, backend);
 
     switch (backend) {
       case 'copilot': {
         cmd = 'copilot';
         args = [];
         if (addDir) args.push('--add-dir', addDir);
-        args.push('--yolo', '-p', prompt);
-        if (model) args.push('--model', model);
+        if (yolo) args.push('--yolo');
+        args.push('-p', prompt);
+        if (normalizedModel) args.push('--model', normalizedModel);
         if (effort) args.push('--effort', effort);
         break;
       }
       case 'claude': {
         cmd = 'claude';
         args = ['-p', prompt];
-        if (model) args.push('--model', model);
+        if (normalizedModel) args.push('--model', normalizedModel);
         break;
       }
       case 'codex': {
         cmd = 'codex';
         args = ['exec'];
-        if (model) args.push('-m', model);
+        if (normalizedModel) args.push('-m', normalizedModel);
         args.push('-');
         useStdin = true;
         break;
@@ -540,7 +569,7 @@ function _runCliStreaming({ backend, prompt, model, cwd, timeout, effort, addDir
       case 'gemini': {
         cmd = 'gemini';
         args = ['-p', prompt];
-        if (model) args.push('--model', model);
+        if (normalizedModel) args.push('--model', normalizedModel);
         break;
       }
       default:

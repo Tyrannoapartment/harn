@@ -76,8 +76,22 @@ const BACKEND_CONFIG: Record<string, {
   },
 }
 
+/**
+ * Infer the actual AI provider from the model name.
+ * e.g. model="claude-sonnet-4.6" + backend="codex" → should show Claude, not ChatGPT.
+ */
+function inferBackend(backend: string, model?: string): string {
+  if (!model) return backend
+  const m = model.toLowerCase()
+  if (m.startsWith('claude-')) return 'claude'
+  if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) return backend === 'codex' ? 'codex' : 'copilot'
+  if (m.startsWith('gemini-')) return 'gemini'
+  return backend
+}
+
 export function AILogo({ backend, model, size = 14 }: AILogoProps) {
-  const key = backend?.toLowerCase() ?? ''
+  const resolved = inferBackend(backend?.toLowerCase() ?? '', model)
+  const key = resolved
   const conf = BACKEND_CONFIG[key]
   if (!conf) return null
 

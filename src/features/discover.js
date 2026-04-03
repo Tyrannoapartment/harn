@@ -5,17 +5,17 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { aiGenerate } from '../ai/backend.js';
-import { pendingSlugs, addItem, ensureSprintDir } from '../backlog/backlog.js';
+import { pendingSlugs, addItem, ensureBacklogDir } from '../backlog/backlog.js';
 import { logStep, logOk, logInfo } from '../core/logger.js';
 import { t } from '../core/i18n.js';
-import { getSprintDir } from '../core/config.js';
+import { getBacklogDir } from '../core/config.js';
 
 /** Discover new backlog items by analyzing the codebase with AI. */
 export async function cmdDiscover({ config, harnDir, scriptDir, rootDir, onLog }) {
   logStep(t('DISCOVER_START'));
 
-  const sd = getSprintDir(rootDir);
-  ensureSprintDir(sd);
+  const sd = getBacklogDir(rootDir);
+  ensureBacklogDir(sd);
   const existing = pendingSlugs(sd);
 
   const prompt = [
@@ -33,7 +33,7 @@ export async function cmdDiscover({ config, harnDir, scriptDir, rootDir, onLog }
   const result = await aiGenerate({
     prompt,
     backend: config.AI_BACKEND,
-    model: config.MODEL_AUXILIARY || config.COPILOT_MODEL_PLANNER,
+    model: config.AUXILIARY_MODEL || config.PLANNER_MODEL,
     cwd: rootDir,
   });
   const output = result?.output || '';
@@ -88,7 +88,7 @@ export async function cmdAdd({ config, harnDir, scriptDir, rootDir }) {
   const addResult = await aiGenerate({
     prompt,
     backend: config.AI_BACKEND,
-    model: config.MODEL_AUXILIARY || config.COPILOT_MODEL_PLANNER,
+    model: config.AUXILIARY_MODEL || config.PLANNER_MODEL,
     cwd: rootDir,
   });
   const output = addResult?.output || '';
@@ -120,8 +120,8 @@ export async function cmdAdd({ config, harnDir, scriptDir, rootDir }) {
 
   if (!confirm) return;
 
-  const sd = getSprintDir(rootDir);
-  ensureSprintDir(sd);
+  const sd = getBacklogDir(rootDir);
+  ensureBacklogDir(sd);
   for (const item of items) {
     addItem(sd, item.slug, item.description);
     logOk(`Added: ${item.slug}`);

@@ -25,7 +25,7 @@ export async function routeNlp(input, config) {
   const result = await aiGenerate({
     prompt,
     backend: config.AI_BACKEND,
-    model: config.MODEL_AUXILIARY || config.COPILOT_MODEL_PLANNER,
+    model: config.AUXILIARY_MODEL || config.PLANNER_MODEL,
     cwd: process.cwd(),
   });
 

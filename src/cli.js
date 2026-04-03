@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { printBanner, logWarn } from './core/logger.js';
-import { loadConfig, DEFAULTS, getSprintDir } from './core/config.js';
+import { loadConfig, DEFAULTS, getBacklogDir } from './core/config.js';
 import { setLang, t } from './core/i18n.js';
 import { setupErrorHandlers } from './core/error.js';
 import { checkForUpdates } from './features/update.js';
@@ -51,11 +51,11 @@ function buildContext(opts = {}) {
   setLang(config.HARN_LANG || 'en');
 
   // Apply CLI model overrides
-  if (opts.plannerModel) config.COPILOT_MODEL_PLANNER = opts.plannerModel;
-  if (opts.generatorContractModel) config.COPILOT_MODEL_GENERATOR_CONTRACT = opts.generatorContractModel;
-  if (opts.generatorImplModel) config.COPILOT_MODEL_GENERATOR_IMPL = opts.generatorImplModel;
-  if (opts.evaluatorContractModel) config.COPILOT_MODEL_EVALUATOR_CONTRACT = opts.evaluatorContractModel;
-  if (opts.evaluatorQaModel) config.COPILOT_MODEL_EVALUATOR_QA = opts.evaluatorQaModel;
+  if (opts.plannerModel) config.PLANNER_MODEL = opts.plannerModel;
+  if (opts.generatorContractModel) config.GENERATOR_CONTRACT_MODEL = opts.generatorContractModel;
+  if (opts.generatorImplModel) config.GENERATOR_IMPL_MODEL = opts.generatorImplModel;
+  if (opts.evaluatorContractModel) config.EVALUATOR_CONTRACT_MODEL = opts.evaluatorContractModel;
+  if (opts.evaluatorQaModel) config.EVALUATOR_QA_MODEL = opts.evaluatorQaModel;
 
   return {
     config,
@@ -143,9 +143,9 @@ program
   .description('Show backlog')
   .action(async () => {
     const ctx = buildContext(program.opts());
-    const { readBacklog, ensureSprintDir } = await import('./backlog/backlog.js');
-    const sd = getSprintDir(ctx.rootDir);
-    ensureSprintDir(sd);
+    const { readBacklog, ensureBacklogDir } = await import('./backlog/backlog.js');
+    const sd = getBacklogDir(ctx.rootDir);
+    ensureBacklogDir(sd);
     const bl = readBacklog(sd);
     for (const section of ['pending', 'in_progress', 'done']) {
       if (bl[section].length > 0) {
@@ -205,10 +205,10 @@ program
       configFile: CONFIG_FILE,
       scriptDir: SCRIPT_DIR,
       openBrowser: opts.open !== false,
-      commandRunner: async (cmd, args, { onLog, onData, sse } = {}) => {
+      commandRunner: async (cmd, args, { onLog, onData, onResult, sse } = {}) => {
         const auto = await import('./features/auto.js');
         const commands = await import('./run/commands.js');
-        const ctxNow = { ...buildContext(program.opts()), onLog, onData, sse };
+        const ctxNow = { ...buildContext(program.opts()), onLog, onData, onResult, sse };
 
         const commandMap = {
           auto: () => auto.cmdAuto(ctxNow),
@@ -323,10 +323,10 @@ program.action(async () => {
     configFile: CONFIG_FILE,
     scriptDir: SCRIPT_DIR,
     openBrowser: true,
-    commandRunner: async (cmd, args, { onLog, onData, sse } = {}) => {
+    commandRunner: async (cmd, args, { onLog, onData, onResult, sse } = {}) => {
       const auto = await import('./features/auto.js');
       const commands = await import('./run/commands.js');
-      const ctxNow = { ...buildContext(program.opts()), onLog, onData, sse };
+      const ctxNow = { ...buildContext(program.opts()), onLog, onData, onResult, sse };
 
       const commandMap = {
         auto: () => auto.cmdAuto(ctxNow),

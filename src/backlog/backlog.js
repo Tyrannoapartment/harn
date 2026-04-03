@@ -1,6 +1,6 @@
 // src/backlog/backlog.js — Per-file backlog storage
 //
-// Storage layout (.harn/sprint/):
+// Storage layout (.harn/backlog/):
 //   pending/<slug>.md        — waiting items
 //   in-progress/<slug>.md    — active item(s)
 //   done/<slug>.md           — completed items
@@ -132,13 +132,16 @@ function findItem(sprintDir, slug) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Ensure the sprint directory and its section subdirectories exist.
+ * Ensure the backlog directory and its section subdirectories exist.
  */
-export function ensureSprintDir(sprintDir) {
+export function ensureBacklogDir(backlogDir) {
   for (const section of SECTIONS) {
-    mkdirSync(sectionDir(sprintDir, section), { recursive: true });
+    mkdirSync(sectionDir(backlogDir, section), { recursive: true });
   }
 }
+
+/** @deprecated Use ensureBacklogDir instead */
+export const ensureSprintDir = ensureBacklogDir;
 
 /**
  * Read all backlog items grouped by section.
@@ -194,7 +197,7 @@ export function itemText(sprintDir, slug) {
  * @param {{ summary?, affectedFiles?, implementationGuide?, acceptanceCriteria? }} [extra]
  */
 export function addItem(sprintDir, slug, description, plan, extra = {}) {
-  ensureSprintDir(sprintDir);
+  ensureBacklogDir(sprintDir);
   const dest = join(sectionDir(sprintDir, 'pending'), `${slug}.md`);
   if (existsSync(dest)) return false;
   writeFileSync(dest, serializeItem({
@@ -215,7 +218,7 @@ export function addItem(sprintDir, slug, description, plan, extra = {}) {
  */
 export function moveItemSection(sprintDir, slug, _fromSection, toSection, opts = {}) {
   const toKey = normalizeSectionName(toSection);
-  ensureSprintDir(sprintDir);
+  ensureBacklogDir(sprintDir);
 
   for (const section of SECTIONS) {
     const src = join(sectionDir(sprintDir, section), `${slug}.md`);
@@ -304,5 +307,5 @@ function normalizeSectionName(name) {
   return 'pending';
 }
 
-// Legacy alias
-export const ensureBacklogFile = ensureSprintDir;
+// Legacy aliases
+export const ensureBacklogFile = ensureBacklogDir;

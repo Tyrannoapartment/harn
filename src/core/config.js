@@ -14,28 +14,58 @@ export const DEFAULTS = {
   SPRINT_COUNT: '1',
   MODEL_ROUTING: 'true',
   AI_BACKEND: '',
-  AI_BACKEND_AUXILIARY: '',
-  AI_BACKEND_PLANNER: '',
-  AI_BACKEND_GENERATOR_CONTRACT: '',
-  AI_BACKEND_GENERATOR_IMPL: '',
-  AI_BACKEND_EVALUATOR_CONTRACT: '',
-  AI_BACKEND_EVALUATOR_QA: '',
-  MODEL_AUXILIARY: '',
-  COPILOT_MODEL_PLANNER: 'claude-haiku-4.5',
-  COPILOT_MODEL_GENERATOR_CONTRACT: 'claude-sonnet-4.6',
-  COPILOT_MODEL_GENERATOR_IMPL: 'claude-opus-4.6',
-  COPILOT_MODEL_EVALUATOR_CONTRACT: 'claude-haiku-4.5',
-  COPILOT_MODEL_EVALUATOR_QA: 'claude-sonnet-4.5',
+  AUXILIARY_BACKEND: '',
+  PLANNER_BACKEND: '',
+  GENERATOR_CONTRACT_BACKEND: '',
+  GENERATOR_IMPL_BACKEND: '',
+  EVALUATOR_CONTRACT_BACKEND: '',
+  EVALUATOR_QA_BACKEND: '',
+  AUXILIARY_MODEL: '',
+  PLANNER_MODEL: 'claude-haiku-4.5',
+  GENERATOR_CONTRACT_MODEL: 'claude-sonnet-4.6',
+  GENERATOR_IMPL_MODEL: 'claude-opus-4.6',
+  EVALUATOR_CONTRACT_MODEL: 'claude-haiku-4.5',
+  EVALUATOR_QA_MODEL: 'claude-sonnet-4.5',
   LINT_COMMAND: '',
   TEST_COMMAND: '',
   E2E_COMMAND: '',
   HARN_LANG: '',
 };
 
+// ── Legacy key migration map ─────────────────────────────────────────────────
+const LEGACY_KEY_MAP = {
+  AI_BACKEND_AUXILIARY: 'AUXILIARY_BACKEND',
+  AI_BACKEND_PLANNER: 'PLANNER_BACKEND',
+  AI_BACKEND_GENERATOR_CONTRACT: 'GENERATOR_CONTRACT_BACKEND',
+  AI_BACKEND_GENERATOR_IMPL: 'GENERATOR_IMPL_BACKEND',
+  AI_BACKEND_EVALUATOR_CONTRACT: 'EVALUATOR_CONTRACT_BACKEND',
+  AI_BACKEND_EVALUATOR_QA: 'EVALUATOR_QA_BACKEND',
+  MODEL_AUXILIARY: 'AUXILIARY_MODEL',
+  COPILOT_MODEL_PLANNER: 'PLANNER_MODEL',
+  COPILOT_MODEL_GENERATOR_CONTRACT: 'GENERATOR_CONTRACT_MODEL',
+  COPILOT_MODEL_GENERATOR_IMPL: 'GENERATOR_IMPL_MODEL',
+  COPILOT_MODEL_EVALUATOR_CONTRACT: 'EVALUATOR_CONTRACT_MODEL',
+  COPILOT_MODEL_EVALUATOR_QA: 'EVALUATOR_QA_MODEL',
+};
+
+/** Migrate legacy config keys to new names in-place. */
+function migrateConfigKeys(cfg) {
+  for (const [oldKey, newKey] of Object.entries(LEGACY_KEY_MAP)) {
+    // If old key has a value, it came from the file — always takes priority
+    if (cfg[oldKey] !== undefined && cfg[oldKey] !== '' && cfg[oldKey] !== DEFAULTS[oldKey]) {
+      cfg[newKey] = cfg[oldKey];
+    }
+    delete cfg[oldKey];
+  }
+  return cfg;
+}
+
 // ── Paths ─────────────────────────────────────────────────────────────────────
 export const getHarnDir    = (rootDir) => join(rootDir, '.harn');
 export const getConfigPath = (rootDir) => join(rootDir, '.harn', 'config');
-export const getSprintDir  = (rootDir) => join(rootDir, '.harn', 'sprint');
+export const getBacklogDir  = (rootDir) => join(rootDir, '.harn', 'backlog');
+/** @deprecated Use getBacklogDir instead */
+export const getSprintDir   = getBacklogDir;
 
 // ── Load config ───────────────────────────────────────────────────────────────
 export function loadConfig(configFile) {
@@ -56,7 +86,7 @@ export function loadConfig(configFile) {
     }
     cfg[key] = val;
   }
-  return cfg;
+  return migrateConfigKeys(cfg);
 }
 
 // ── Save config ───────────────────────────────────────────────────────────────
@@ -105,6 +135,13 @@ export function migrateOldDirs(rootDir) {
     } else if (existsSync(oldCfg)) {
       try { renameSync(oldCfg, newCfg); } catch { /* ignore */ }
     }
+  }
+
+  // Migrate .harn/sprint/ → .harn/backlog/
+  const oldBacklogDir = join(harnDir, 'sprint');
+  const newBacklogDir = join(harnDir, 'backlog');
+  if (existsSync(oldBacklogDir) && !existsSync(newBacklogDir)) {
+    try { renameSync(oldBacklogDir, newBacklogDir); } catch { /* ignore */ }
   }
 }
 

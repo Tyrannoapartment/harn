@@ -4,6 +4,12 @@ import type { LogEntry } from './useSSE'
 const STORAGE_KEY = 'harn:console-sessions'
 const MAX_MESSAGES_PER_SESSION = 500
 
+export interface ResultFile {
+  name: string
+  path: string
+  content: string
+}
+
 export interface ConsoleMessage {
   id: string
   role: 'user' | 'assistant' | 'system' | 'log' | 'result'
@@ -14,6 +20,7 @@ export interface ConsoleMessage {
   phase?: string
   agentRole?: string
   verdict?: string
+  files?: ResultFile[]
 }
 
 export interface ConsoleSession {
@@ -123,7 +130,7 @@ export function useConsoleSessions() {
       text: string,
       backend?: string,
       model?: string,
-      extra?: { phase?: string; agentRole?: string; verdict?: string },
+      extra?: { phase?: string; agentRole?: string; verdict?: string; files?: ResultFile[] },
     ) => {
       setState((prev) => ({
         ...prev,

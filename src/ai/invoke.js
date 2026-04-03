@@ -15,19 +15,19 @@ import { routeModel } from './routing.js';
 // ── Role → config key mapping ────────────────────────────────────────────────
 
 const ROLE_BACKEND_KEYS = {
-  planner:             'AI_BACKEND_PLANNER',
-  generator_contract:  'AI_BACKEND_GENERATOR_CONTRACT',
-  generator_impl:      'AI_BACKEND_GENERATOR_IMPL',
-  evaluator_contract:  'AI_BACKEND_EVALUATOR_CONTRACT',
-  evaluator_qa:        'AI_BACKEND_EVALUATOR_QA',
+  planner:             'PLANNER_BACKEND',
+  generator_contract:  'GENERATOR_CONTRACT_BACKEND',
+  generator_impl:      'GENERATOR_IMPL_BACKEND',
+  evaluator_contract:  'EVALUATOR_CONTRACT_BACKEND',
+  evaluator_qa:        'EVALUATOR_QA_BACKEND',
 };
 
 const ROLE_MODEL_KEYS = {
-  planner:             'COPILOT_MODEL_PLANNER',
-  generator_contract:  'COPILOT_MODEL_GENERATOR_CONTRACT',
-  generator_impl:      'COPILOT_MODEL_GENERATOR_IMPL',
-  evaluator_contract:  'COPILOT_MODEL_EVALUATOR_CONTRACT',
-  evaluator_qa:        'COPILOT_MODEL_EVALUATOR_QA',
+  planner:             'PLANNER_MODEL',
+  generator_contract:  'GENERATOR_CONTRACT_MODEL',
+  generator_impl:      'GENERATOR_IMPL_MODEL',
+  evaluator_contract:  'EVALUATOR_CONTRACT_MODEL',
+  evaluator_qa:        'EVALUATOR_QA_MODEL',
 };
 
 const ROLE_GUIDANCE_MAP = {
@@ -53,12 +53,39 @@ function resolveConfig(config, key, defaultValue = '') {
 }
 
 /**
+ * Infer the correct backend from a model name prefix.
+ * e.g. claude-sonnet-4.6 → 'claude', gpt-5.4 → 'codex', gemini-2.5-pro → 'gemini'
+ */
+function inferBackendFromModel(model) {
+  if (!model) return '';
+  const m = model.toLowerCase();
+  if (m.startsWith('claude-')) return 'claude';
+  if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) return 'codex';
+  if (m.startsWith('gemini-')) return 'gemini';
+  return '';
+}
+
+/**
  * Determine the backend for a role.
+ * Priority: role-specific config → model-name inference → AI_BACKEND config → env → auto-detect
  */
 function resolveBackend(roleDetail, config) {
+  // 1. Role-specific backend (e.g. PLANNER_BACKEND)
   const key = ROLE_BACKEND_KEYS[roleDetail];
-  const backend = key ? resolveConfig(config, key) : '';
-  if (backend) return backend;
+  const roleBackend = key ? resolveConfig(config, key) : '';
+  if (roleBackend) return roleBackend;
+
+  // 2. Infer from model name — prevents mismatch (e.g. claude model on codex backend)
+  const modelKey = ROLE_MODEL_KEYS[roleDetail];
+  const model = modelKey ? resolveConfig(config, modelKey) : '';
+  const inferred = inferBackendFromModel(model);
+  if (inferred) return inferred;
+
+  // 3. Global AI_BACKEND from config or env
+  const globalBackend = resolveConfig(config, 'AI_BACKEND');
+  if (globalBackend) return globalBackend;
+
+  // 4. Auto-detect from PATH
   return detectAiCli() || 'copilot';
 }
 
@@ -161,6 +188,7 @@ export async function invokeRole({
   runDir,
   harnDir,
   scriptDir,
+  rootDir,
   config = {},
   memoryInject: memoryInjectFn,
   hasGuidance: hasGuidanceFn,
@@ -188,18 +216,25 @@ export async function invokeRole({
     model = routeModel(model, enrichedPrompt, config);
   }
 
-  // 5. Determine effort (generator roles get 'high' for copilot)
+  // 5. Determine effort and yolo (only generator_impl edits files)
+  const isImpl = detail === 'generator_impl';
   const effort = (backend === 'copilot' && GENERATOR_ROLES.has(detail)) ? 'high' : undefined;
+  const yolo = backend === 'copilot' && isImpl;
 
-  // 6. Invoke AI CLI
+  // 6. Derive project root: rootDir > harnDir/.. > runDir
+  const projectRoot = rootDir || (harnDir ? join(harnDir, '..') : null);
+  const cwd = projectRoot || runDir || process.cwd();
+
+  // 7. Invoke AI CLI
   const result = await aiGenerate({
     prompt: enrichedPrompt,
     backend,
     model,
-    cwd: runDir || process.cwd(),
+    cwd,
     effort,
-    addDir: runDir ? join(runDir, '..', '..') : undefined,
+    addDir: projectRoot || undefined,
     harnDir,
+    yolo,
   });
 
   return {
@@ -226,6 +261,7 @@ export async function invokeWithStreaming({
   runDir,
   harnDir,
   scriptDir,
+  rootDir,
   config = {},
   memoryInject: memoryInjectFn,
   hasGuidance: hasGuidanceFn,
@@ -254,18 +290,25 @@ export async function invokeWithStreaming({
     model = routeModel(model, enrichedPrompt, config);
   }
 
-  // 5. Effort
+  // 5. Effort and yolo (only generator_impl edits files)
+  const isImpl = detail === 'generator_impl';
   const effort = (backend === 'copilot' && GENERATOR_ROLES.has(detail)) ? 'high' : undefined;
+  const yolo = backend === 'copilot' && isImpl;
 
-  // 6. Invoke with streaming
+  // 6. Derive project root: rootDir > harnDir/.. > runDir
+  const projectRoot = rootDir || (harnDir ? join(harnDir, '..') : null);
+  const cwd = projectRoot || runDir || process.cwd();
+
+  // 7. Invoke with streaming
   const result = await aiGenerateStreaming({
     prompt: enrichedPrompt,
     backend,
     model,
-    cwd: runDir || process.cwd(),
+    cwd,
     effort,
-    addDir: runDir ? join(runDir, '..', '..') : undefined,
+    addDir: projectRoot || undefined,
     harnDir,
+    yolo,
     onData,
   });
 

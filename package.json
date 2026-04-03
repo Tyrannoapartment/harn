@@ -1,9 +1,17 @@
 {
   "name": "@tyrannoapartment/harn",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "AI multi-agent sprint development loop orchestrator (Planner → Generator → Evaluator)",
   "type": "module",
-  "keywords": ["ai", "agents", "sprint", "planner", "cli", "copilot", "claude"],
+  "keywords": [
+    "ai",
+    "agents",
+    "sprint",
+    "planner",
+    "cli",
+    "copilot",
+    "claude"
+  ],
   "homepage": "https://github.com/Tyrannoapartment/harn",
   "repository": {
     "type": "git",

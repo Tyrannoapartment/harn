@@ -26,16 +26,30 @@ import { setLang } from '@/lib/i18n'
 
 interface Config {
   AI_BACKEND?: string
-  COPILOT_MODEL_PLANNER?: string
-  COPILOT_MODEL_GENERATOR_CONTRACT?: string
-  COPILOT_MODEL_GENERATOR_IMPL?: string
-  COPILOT_MODEL_EVALUATOR_CONTRACT?: string
-  COPILOT_MODEL_EVALUATOR_QA?: string
-  MODEL_AUXILIARY?: string
+  PLANNER_BACKEND?: string
+  GENERATOR_CONTRACT_BACKEND?: string
+  GENERATOR_IMPL_BACKEND?: string
+  EVALUATOR_CONTRACT_BACKEND?: string
+  EVALUATOR_QA_BACKEND?: string
+  PLANNER_MODEL?: string
+  GENERATOR_CONTRACT_MODEL?: string
+  GENERATOR_IMPL_MODEL?: string
+  EVALUATOR_CONTRACT_MODEL?: string
+  EVALUATOR_QA_MODEL?: string
+  AUXILIARY_MODEL?: string
   MAX_ITERATIONS?: string
   MODEL_ROUTING?: string
   HARN_LANG?: string
   [key: string]: string | undefined
+}
+
+// Map model config keys to their per-role backend config keys
+const MODEL_TO_BACKEND_KEY: Record<string, string> = {
+  PLANNER_MODEL: 'PLANNER_BACKEND',
+  GENERATOR_CONTRACT_MODEL: 'GENERATOR_CONTRACT_BACKEND',
+  GENERATOR_IMPL_MODEL: 'GENERATOR_IMPL_BACKEND',
+  EVALUATOR_CONTRACT_MODEL: 'EVALUATOR_CONTRACT_BACKEND',
+  EVALUATOR_QA_MODEL: 'EVALUATOR_QA_BACKEND',
 }
 
 export function SettingsPanel() {
@@ -55,16 +69,25 @@ export function SettingsPanel() {
   const selectedBackend = config.AI_BACKEND || detected || 'copilot'
 
   const MODEL_FIELDS = [
-    { key: 'COPILOT_MODEL_PLANNER', labelKey: 'settings.planner', default: 'claude-haiku-4.5' },
-    { key: 'COPILOT_MODEL_GENERATOR_CONTRACT', labelKey: 'settings.generatorContract', default: 'claude-sonnet-4.6' },
-    { key: 'COPILOT_MODEL_GENERATOR_IMPL', labelKey: 'settings.generatorImpl', default: 'claude-opus-4.6' },
-    { key: 'COPILOT_MODEL_EVALUATOR_CONTRACT', labelKey: 'settings.evaluatorContract', default: 'claude-haiku-4.5' },
-    { key: 'COPILOT_MODEL_EVALUATOR_QA', labelKey: 'settings.evaluatorQA', default: 'claude-sonnet-4.5' },
-    { key: 'MODEL_AUXILIARY', labelKey: 'settings.auxiliary', default: '' },
+    { key: 'PLANNER_MODEL', labelKey: 'settings.planner', default: 'claude-haiku-4.5' },
+    { key: 'GENERATOR_CONTRACT_MODEL', labelKey: 'settings.generatorContract', default: 'claude-sonnet-4.6' },
+    { key: 'GENERATOR_IMPL_MODEL', labelKey: 'settings.generatorImpl', default: 'claude-opus-4.6' },
+    { key: 'EVALUATOR_CONTRACT_MODEL', labelKey: 'settings.evaluatorContract', default: 'claude-haiku-4.5' },
+    { key: 'EVALUATOR_QA_MODEL', labelKey: 'settings.evaluatorQA', default: 'claude-sonnet-4.5' },
+    { key: 'AUXILIARY_MODEL', labelKey: 'settings.auxiliary', default: '' },
   ]
 
   useEffect(() => {
-    api.getConfig().then((data: Config) => setConfig(data)).catch(() => {}).finally(() => setLoadingConfig(false))
+    api.getConfig().then((data: Config) => {
+      setConfig(data)
+      // Initialize modelSourceMap from saved per-role backend config
+      const sourceMap: Record<string, string> = {}
+      for (const [modelKey, backendKey] of Object.entries(MODEL_TO_BACKEND_KEY)) {
+        const savedBackend = data[backendKey]
+        if (savedBackend) sourceMap[modelKey] = savedBackend
+      }
+      if (Object.keys(sourceMap).length > 0) setModelSourceMap(sourceMap)
+    }).catch(() => {}).finally(() => setLoadingConfig(false))
     api.getBackends().then((data) => {
       setBackends(data.backends || [])
       setDetected(data.detected || '')
@@ -78,6 +101,7 @@ export function SettingsPanel() {
   }
 
   // Select a model: value format is "backend/model"
+  // Also saves the per-role AI_BACKEND_* key so the correct backend is used at runtime
   const setModel = (key: string, compositeValue: string) => {
     const slashIdx = compositeValue.indexOf('/')
     if (slashIdx > 0) {
@@ -85,19 +109,37 @@ export function SettingsPanel() {
       const model = compositeValue.substring(slashIdx + 1)
       setModelSourceMap((prev) => ({ ...prev, [key]: backend }))
       set(key, model)
+      // Save per-role backend config
+      const backendKey = MODEL_TO_BACKEND_KEY[key]
+      if (backendKey) {
+        set(backendKey, backend)
+      }
     } else {
       set(key, compositeValue)
     }
   }
 
+  // Infer the natural backend from a model name prefix
+  const inferBackendFromModel = (model: string): string | null => {
+    if (!model) return null
+    const m = model.toLowerCase()
+    if (m.startsWith('claude-')) return 'claude'
+    if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) return 'codex'
+    if (m.startsWith('gemini-')) return 'gemini'
+    return null
+  }
+
   // Get display backend for a model field
   const getModelBackend = (key: string, modelName: string) => {
-    // Explicitly chosen backend takes priority
+    // 1. Explicitly chosen backend takes priority (from modelSourceMap or saved config)
     if (modelSourceMap[key]) return modelSourceMap[key]
-    // Find unique backend that has this model
+    // 2. Infer from model name prefix (claude-* → claude, gpt-* → codex, etc.)
+    const inferred = inferBackendFromModel(modelName)
+    if (inferred && backends.some((b) => b.backend === inferred)) return inferred
+    // 3. Find unique backend that has this model
     const matches = backends.filter((b) => b.models.includes(modelName))
     if (matches.length === 1) return matches[0].backend
-    // Prefer selectedBackend if it has the model
+    // 4. Prefer selectedBackend if it has the model
     if (matches.some((b) => b.backend === selectedBackend)) return selectedBackend
     return matches[0]?.backend || selectedBackend
   }

@@ -34,6 +34,12 @@ export interface AIChunk {
   timestamp: number
 }
 
+export interface ResultFile {
+  name: string
+  path: string
+  content: string
+}
+
 export interface ResultEntry {
   text: string
   phase: string
@@ -42,6 +48,7 @@ export interface ResultEntry {
   model?: string
   verdict?: string
   iteration?: number
+  files?: ResultFile[]
   timestamp: number
 }
 

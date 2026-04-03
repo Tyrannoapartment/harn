@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import chalk from 'chalk';
 import { logStep } from '../core/logger.js';
 import { t } from '../core/i18n.js';
-import { getSprintDir } from '../core/config.js';
+import { getBacklogDir } from '../core/config.js';
 
 function checkCli(name) {
   try {
@@ -51,9 +51,9 @@ export function cmdDoctor({ harnDir, rootDir, config }) {
 
   // Backlog
   if (config) {
-    const sd = getSprintDir(rootDir);
-    const hasBacklog = existsSync(join(sd, 'pending'));
-    console.log(`  ${hasBacklog ? chalk.green('✓') : chalk.yellow('?')}  sprint dir ${hasBacklog ? chalk.dim(sd) : chalk.yellow('(missing)')}`);
+    const bd = getBacklogDir(rootDir);
+    const hasBacklog = existsSync(join(bd, 'pending'));
+    console.log(`  ${hasBacklog ? chalk.green('✓') : chalk.yellow('?')}  backlog dir ${hasBacklog ? chalk.dim(bd) : chalk.yellow('(missing)')}`);
   }
 
   // Git branch
@@ -68,11 +68,11 @@ export function cmdDoctor({ harnDir, rootDir, config }) {
   if (config) {
     console.log(chalk.dim('\n  Models:'));
     const modelKeys = [
-      ['COPILOT_MODEL_PLANNER', 'Planner'],
-      ['COPILOT_MODEL_GENERATOR_CONTRACT', 'Generator (contract)'],
-      ['COPILOT_MODEL_GENERATOR_IMPL', 'Generator (impl)'],
-      ['COPILOT_MODEL_EVALUATOR_CONTRACT', 'Evaluator (contract)'],
-      ['COPILOT_MODEL_EVALUATOR_QA', 'Evaluator (QA)'],
+      ['PLANNER_MODEL', 'Planner'],
+      ['GENERATOR_CONTRACT_MODEL', 'Generator (contract)'],
+      ['GENERATOR_IMPL_MODEL', 'Generator (impl)'],
+      ['EVALUATOR_CONTRACT_MODEL', 'Evaluator (contract)'],
+      ['EVALUATOR_QA_MODEL', 'Evaluator (QA)'],
     ];
     for (const [key, label] of modelKeys) {
       const val = config[key] || chalk.dim('default');

@@ -7,8 +7,8 @@ import { Router } from 'express';
 import { readFileSync, existsSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, saveConfig, getSprintDir } from '../../core/config.js';
-import { pendingSlugs, addItem, removeItem, updateItem, readBacklog, ensureSprintDir } from '../../backlog/backlog.js';
+import { loadConfig, saveConfig, getBacklogDir } from '../../core/config.js';
+import { pendingSlugs, addItem, removeItem, updateItem, readBacklog, ensureBacklogDir } from '../../backlog/backlog.js';
 import { listRuns, currentRunId } from '../../run/run.js';
 import { memoryLoad, memoryAppend } from '../../features/memory.js';
 import { aiGenerate, getModelsForBackend, refreshModelCache, detectAiCli, getFallbackModels, checkBackendHealth, getAllBackendModels, killActiveChild } from '../../ai/backend.js';
@@ -49,13 +49,13 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
     if (curDir) {
       active = {
         slug: readSafe(join(curDir, 'prompt.txt')),
-        sprint: readSafe(join(curDir, 'current_sprint')),
+        scope: readSafe(join(curDir, 'current_scope')) || readSafe(join(curDir, 'current_sprint')),
         plan: readSafe(join(curDir, 'plan.txt')),
-        completed: existsSync(join(curDir, 'completed')),
+        completed: existsSync(join(curDir, 'run_report.md')),
       };
     }
-    const sd = getSprintDir(rootDir);
-    ensureSprintDir(sd);
+    const sd = getBacklogDir(rootDir);
+    ensureBacklogDir(sd);
     const pending = pendingSlugs(sd);
     const bl = readBacklog(sd);
     const ip = bl.in_progress[0]?.slug || null;
@@ -64,8 +64,8 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
 
   // ─── Backlog ───
   router.get('/backlog', (_req, res) => {
-    const sd = getSprintDir(rootDir);
-    ensureSprintDir(sd);
+    const sd = getBacklogDir(rootDir);
+    ensureBacklogDir(sd);
     const bl = readBacklog(sd);
     const mapItem = (i, status) => ({
       slug: i.slug,
@@ -89,8 +89,8 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
   router.post('/backlog/add', async (req, res) => {
     const { slug, description, plan, summary, affectedFiles, implementationGuide, acceptanceCriteria } = req.body;
     if (!slug) return res.status(400).json({ error: 'slug required' });
-    const sd = getSprintDir(rootDir);
-    ensureSprintDir(sd);
+    const sd = getBacklogDir(rootDir);
+    ensureBacklogDir(sd);
     addItem(sd, slug, description || '', plan || '', { summary, affectedFiles, implementationGuide, acceptanceCriteria });
     res.json({ ok: true, slug });
   });
@@ -107,7 +107,7 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
         '[{"slug": "kebab-case-id", "summary": "one-line summary", "description": "detailed description", "affectedFiles": "- path/to/file1\\n- path/to/file2", "implementationGuide": "step-by-step guide", "acceptanceCriteria": "- [ ] criterion 1\\n- [ ] criterion 2"}]',
         '\nOnly output the JSON array, no extra text.',
       ].join('\n');
-      const result = await aiGenerate({ prompt, backend: config.AI_BACKEND, model: config.COPILOT_MODEL_PLANNER, cwd: rootDir });
+      const result = await aiGenerate({ prompt, backend: config.AI_BACKEND, model: config.PLANNER_MODEL, cwd: rootDir });
       const output = result?.output || '';
       const match = output.match(/\[[\s\S]*?\]/);
       if (match) {
@@ -123,8 +123,8 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
   router.patch('/backlog/:slug', (req, res) => {
     const { slug } = req.params;
     const { description, plan, newSlug, summary, affectedFiles, implementationGuide, acceptanceCriteria } = req.body;
-    const sd = getSprintDir(rootDir);
-    ensureSprintDir(sd);
+    const sd = getBacklogDir(rootDir);
+    ensureBacklogDir(sd);
     const ok = updateItem(sd, slug, { newSlug, summary, description, affectedFiles, implementationGuide, acceptanceCriteria, plan });
     if (!ok) return res.status(404).json({ error: 'item not found' });
     res.json({ ok: true, slug: newSlug || slug });
@@ -132,8 +132,8 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
 
   router.delete('/backlog/:slug', (req, res) => {
     const { slug } = req.params;
-    const sd = getSprintDir(rootDir);
-    ensureSprintDir(sd);
+    const sd = getBacklogDir(rootDir);
+    ensureBacklogDir(sd);
     const ok = removeItem(sd, slug);
     if (!ok) return res.status(404).json({ error: 'item not found' });
     res.json({ ok: true, slug });
@@ -176,16 +176,20 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
           }
         } catch { /* skip */ }
       }
-      const completed = existsSync(join(dir, 'completed'));
-      const currentSprint = readSafe(join(dir, 'current_sprint'));
-      const totalSprints = readSafe(join(dir, 'sprint_count'));
+      const completed = existsSync(join(dir, 'run_report.md'));
+      const currentScope = readSafe(join(dir, 'current_scope')) || readSafe(join(dir, 'current_sprint'));
+      const totalScopes = readSafe(join(dir, 'scope_count')) || readSafe(join(dir, 'sprint_count'));
       return {
         id: r,
         prompt: readSafe(join(dir, 'prompt.txt')),
         plan: readSafe(join(dir, 'plan.txt')),
         sprints,
-        currentSprint: currentSprint ? parseInt(currentSprint, 10) : null,
-        totalSprints: totalSprints ? parseInt(totalSprints, 10) : null,
+        scopes: sprints,
+        currentScope: currentScope ? parseInt(currentScope, 10) : null,
+        totalScopes: totalScopes ? parseInt(totalScopes, 10) : null,
+        // Legacy compat
+        currentSprint: currentScope ? parseInt(currentScope, 10) : null,
+        totalSprints: totalScopes ? parseInt(totalScopes, 10) : null,
         active: r === curId,
         isRunning: r === curId && isRunning,
         completed,
@@ -210,11 +214,11 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
   router.get('/models', (_req, res) => {
     const config = loadConfig(configFile);
     res.json({
-      planner: config.COPILOT_MODEL_PLANNER || 'claude-haiku-4.5',
-      generatorContract: config.COPILOT_MODEL_GENERATOR_CONTRACT || 'claude-sonnet-4.6',
-      generatorImpl: config.COPILOT_MODEL_GENERATOR_IMPL || 'claude-opus-4.6',
-      evaluatorContract: config.COPILOT_MODEL_EVALUATOR_CONTRACT || 'claude-haiku-4.5',
-      evaluatorQA: config.COPILOT_MODEL_EVALUATOR_QA || 'claude-sonnet-4.5',
+      planner: config.PLANNER_MODEL || 'claude-haiku-4.5',
+      generatorContract: config.GENERATOR_CONTRACT_MODEL || 'claude-sonnet-4.6',
+      generatorImpl: config.GENERATOR_IMPL_MODEL || 'claude-opus-4.6',
+      evaluatorContract: config.EVALUATOR_CONTRACT_MODEL || 'claude-haiku-4.5',
+      evaluatorQA: config.EVALUATOR_QA_MODEL || 'claude-sonnet-4.5',
     });
   });
 
@@ -316,11 +320,26 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
   });
 
   // ─── Commands (direct) ───
+  const ASYNC_COMMANDS = new Set(['start', 'auto', 'all', 'resume']);
+
   router.post('/command', async (req, res) => {
     const { command, args } = req.body;
     if (!command) return res.status(400).json({ error: 'command required' });
+
+    sse.broadcastLog(`> harn ${command}`);
+
+    // Long-running sprint commands run in background — respond immediately
+    if (ASYNC_COMMANDS.has(command)) {
+      commandRunner(command, args || []).then(() => {
+        sse.broadcastLog(`Command complete: ${command}`);
+      }).catch((e) => {
+        sse.broadcastLog(`⚠ ${command} error: ${e.message}`);
+      });
+      return res.json({ ok: true, result: 'started' });
+    }
+
+    // Short commands (stop, status, backlog, etc.) run synchronously
     try {
-      sse.broadcastLog(`> harn ${command}`);
       const result = await commandRunner(command, args || []);
       sse.broadcastLog(`Command complete: ${command}`);
       res.json({ ok: true, result });

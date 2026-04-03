@@ -5,7 +5,8 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { Add01Icon, Cancel01Icon, Delete02Icon, SidebarRight01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { LogFeed } from '@/components/LogFeed'
-import { RawLogPanel } from '@/components/RawLogPanel'
+import { RightPanel, type FileChange, type ArtifactEntry } from '@/components/RightPanel'
+import type { ResultFile } from '@/hooks/useConsoleSessions'
 import { Composer } from '@/components/Composer'
 import { useConsoleSessions } from '@/hooks/useConsoleSessions'
 import { useSSE, type ResultEntry } from '@/hooks/useSSE'
@@ -33,22 +34,53 @@ export function ConsoleTabs() {
   const [loading, setLoading] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
   const [rawLines, setRawLines] = useState<string[]>([])
+  const [fileChanges, setFileChanges] = useState<FileChange[]>([])
+  const [artifacts, setArtifacts] = useState<ArtifactEntry[]>([])
+  const [viewerFile, setViewerFile] = useState<ResultFile | null>(null)
   const prevLogCount = useRef(0)
   const lastPhaseRef = useRef<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const editInputRef = useRef<HTMLInputElement>(null)
 
+  // Parse git diff stat lines into FileChange entries
+  const parseFileChanges = useCallback((text: string) => {
+    // Match lines like: "📁 Changed files:" or "📄 New files:"
+    if (!text.includes('📁') && !text.includes('📄')) return
+    const lines = text.split('\n').filter((l) => l.trim())
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('📁') || trimmed.startsWith('📄')) continue
+      // git diff --stat lines: " path/to/file | 5 ++--"
+      const statMatch = trimmed.match(/^\s*(.+?)\s+\|\s+(.+)$/)
+      if (statMatch) {
+        setFileChanges((prev) => {
+          if (prev.some((c) => c.path === statMatch[1].trim())) return prev
+          return [...prev, { type: 'modified', path: statMatch[1].trim(), stat: statMatch[2].trim() }]
+        })
+        continue
+      }
+      // Plain file path (new/untracked)
+      if (trimmed && !trimmed.includes('file') && !trimmed.includes('changed')) {
+        setFileChanges((prev) => {
+          if (prev.some((c) => c.path === trimmed)) return prev
+          return [...prev, { type: 'added', path: trimmed }]
+        })
+      }
+    }
+  }, [])
+
   // Pipe new SSE logs into active session (operational messages)
   useEffect(() => {
     if (logs.length > prevLogCount.current) {
       const newLogs = logs.slice(prevLogCount.current)
       appendLogs(newLogs)
-      // Also add to raw log
+      // Also add to raw log + detect file changes
       setRawLines((prev) => [...prev, ...newLogs.map((l) => l.text)])
+      for (const l of newLogs) parseFileChanges(l.text)
     }
     prevLogCount.current = logs.length
-  }, [logs, appendLogs])
+  }, [logs, appendLogs, parseFileChanges])
 
   // Pipe AI streaming chunks — accumulate into session + raw log
   useEffect(() => {
@@ -67,14 +99,34 @@ export function ConsoleTabs() {
     })
   }, [onAIChunk, appendChunk])
 
-  // Pipe result events as result messages in chat
+  // Pipe result events as result messages in chat + store as artifacts
+  const PHASE_LABELS_MAP: Record<string, string> = {
+    plan: 'Plan',
+    contract: 'Contract',
+    'contract-review': 'Contract Review',
+    'contract-revision': 'Contract Revision',
+    implement: 'Implementation',
+    evaluate: 'QA Report',
+  }
+
   useEffect(() => {
     return onResult((r: ResultEntry) => {
       addMessage(activeId, 'result', r.text, r.backend, r.model, {
         phase: r.phase,
         agentRole: r.role,
         verdict: r.verdict,
+        files: r.files,
       })
+      // Store as artifact for right panel
+      setArtifacts((prev) => [
+        ...prev,
+        {
+          phase: r.phase,
+          label: PHASE_LABELS_MAP[r.phase] || r.phase,
+          content: r.text,
+          timestamp: r.timestamp,
+        },
+      ])
     })
   }, [onResult, activeId, addMessage])
 
@@ -88,6 +140,7 @@ export function ConsoleTabs() {
       evaluate: { label: 'Evaluator', emoji: '🔍' },
       next: { label: 'Sprint', emoji: '➡️' },
       complete: { label: 'Sprint Loop', emoji: '✅' },
+      stopped: { label: 'Sprint Loop', emoji: '🛑' },
     }
 
     const PHASE_DESC: Record<string, string> = {
@@ -98,6 +151,7 @@ export function ConsoleTabs() {
       evaluate: 'Reviewing implementation…',
       next: 'Moving to next sprint…',
       complete: 'All sprints complete!',
+      stopped: 'Sprint loop stopped.',
     }
 
     return onStatus((s) => {
@@ -116,9 +170,14 @@ export function ConsoleTabs() {
         text += ` *(iteration ${s.iteration})*`
       }
 
-      addMessage(activeId, 'assistant', text, s.backend, s.model)
+      addMessage(activeId, 'assistant', text, s.backend || undefined, s.model || undefined)
     })
   }, [onStatus, activeId, addMessage])
+
+  const handleFileClick = useCallback((file: ResultFile) => {
+    setViewerFile(file)
+    setLogOpen(true)
+  }, [])
 
   const handleSubmit = useCallback(async (text: string) => {
     addMessage(activeId, 'user', text)
@@ -273,7 +332,7 @@ export function ConsoleTabs() {
                     <HugeiconsIcon icon={SidebarRight01Icon} size={12} />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">Raw Output</TooltipContent>
+                <TooltipContent side="bottom">Side Panel</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
@@ -284,18 +343,24 @@ export function ConsoleTabs() {
           <LogFeed
             messages={activeSession?.messages ?? []}
             connected={connected}
+            onFileClick={handleFileClick}
           />
         </div>
 
         <Composer loading={loading} onSubmit={handleSubmit} />
       </div>
 
-      {/* ── Right: Raw Log Panel (toggleable) ── */}
+      {/* ── Right: Tabbed Panel (toggleable) ── */}
       {logOpen && (
         <>
           <div className="w-px bg-border shrink-0" />
           <div className="w-[400px] shrink-0 overflow-hidden">
-            <RawLogPanel lines={rawLines} />
+            <RightPanel
+              rawLines={rawLines}
+              fileChanges={fileChanges}
+              artifacts={artifacts}
+              viewerFile={viewerFile}
+            />
           </div>
         </>
       )}

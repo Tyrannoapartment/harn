@@ -9,10 +9,10 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { aiGenerate, detectAiCli } from '../ai/backend.js';
-import { loadConfig, saveConfig, getSprintDir } from '../core/config.js';
+import { loadConfig, saveConfig, getBacklogDir } from '../core/config.js';
 import {
   readBacklog, pendingSlugs, addItem, removeItem,
-  updateItem, moveItemSection, ensureSprintDir,
+  updateItem, moveItemSection, ensureBacklogDir,
 } from '../backlog/backlog.js';
 import { listRuns, currentRunId } from '../run/run.js';
 import { memoryLoad } from '../features/memory.js';
@@ -39,8 +39,8 @@ function loadAssistantPrompt(scriptDir, harnDir) {
 
 function buildContext({ harnDir, rootDir, configFile }) {
   const config = loadConfig(configFile);
-  const sd = getSprintDir(rootDir);
-  ensureSprintDir(sd);
+  const sd = getBacklogDir(rootDir);
+  ensureBacklogDir(sd);
   const bl = readBacklog(sd);
 
   const parts = ['## Current Project State\n'];
@@ -66,7 +66,7 @@ function buildContext({ harnDir, rootDir, configFile }) {
   if (curId) {
     const runDir = join(harnDir, 'runs', curId);
     const slug = readSafe(join(runDir, 'prompt.txt'));
-    const sprint = readSafe(join(runDir, 'current_sprint'));
+    const sprint = readSafe(join(runDir, 'current_scope')) || readSafe(join(runDir, 'current_sprint'));
     parts.push(`\n### Active Run`);
     parts.push(`- Run: \`${curId}\`, Item: \`${slug || '?'}\`, Sprint: ${sprint || '?'}`);
   } else {
@@ -75,8 +75,8 @@ function buildContext({ harnDir, rootDir, configFile }) {
 
   // Key config values
   parts.push(`\n### Configuration`);
-  const showKeys = ['AI_BACKEND', 'COPILOT_MODEL_PLANNER', 'MODEL_GENERATOR_IMPL',
-    'MODEL_EVALUATOR_QA', 'MODEL_AUXILIARY', 'HARN_LANG', 'SPRINT_COUNT', 'MAX_ITERATIONS'];
+  const showKeys = ['AI_BACKEND', 'PLANNER_MODEL', 'GENERATOR_IMPL_MODEL',
+    'EVALUATOR_QA_MODEL', 'AUXILIARY_MODEL', 'HARN_LANG', 'SPRINT_COUNT', 'MAX_ITERATIONS'];
   for (const k of showKeys) {
     if (config[k]) parts.push(`- ${k} = \`${config[k]}\``);
   }
@@ -128,8 +128,8 @@ function stripActionBlock(text) {
 
 async function executeActions(actions, { harnDir, rootDir, configFile, commandRunner, sse }) {
   const results = [];
-  const sd = getSprintDir(rootDir);
-  ensureSprintDir(sd);
+  const sd = getBacklogDir(rootDir);
+  ensureBacklogDir(sd);
 
   for (const { action, params } of actions) {
     try {
@@ -168,22 +168,34 @@ async function executeSingle(action, params, { sd, harnDir, rootDir, configFile,
       return res;
     }
 
-    // ── Sprint ──
+    // ── Sprint (fire-and-forget — runs in background, progress via SSE) ──
     case 'sprint:start': {
       if (sse) sse.broadcastLog(`▶ Starting sprint: ${params.slug || 'auto'}`);
-      return commandRunner('start', [params.slug]);
+      commandRunner('start', [params.slug]).catch((e) => {
+        if (sse) sse.broadcastLog(`⚠ Sprint error: ${e.message}`);
+      });
+      return 'started';
     }
     case 'sprint:auto': {
       if (sse) sse.broadcastLog('▶ Running auto mode…');
-      return commandRunner('auto', []);
+      commandRunner('auto', []).catch((e) => {
+        if (sse) sse.broadcastLog(`⚠ Sprint error: ${e.message}`);
+      });
+      return 'started';
     }
     case 'sprint:all': {
       if (sse) sse.broadcastLog('▶ Running all pending items…');
-      return commandRunner('all', []);
+      commandRunner('all', []).catch((e) => {
+        if (sse) sse.broadcastLog(`⚠ Sprint error: ${e.message}`);
+      });
+      return 'started';
     }
     case 'sprint:resume': {
       if (sse) sse.broadcastLog('▶ Resuming sprint…');
-      return commandRunner('resume', []);
+      commandRunner('resume', []).catch((e) => {
+        if (sse) sse.broadcastLog(`⚠ Sprint error: ${e.message}`);
+      });
+      return 'started';
     }
     case 'sprint:stop': {
       if (sse) sse.broadcastLog('⏹ Stopping sprint…');
@@ -265,7 +277,7 @@ async function executeSingle(action, params, { sd, harnDir, rootDir, configFile,
       for (const id of runs.slice(0, 10)) {
         const runDir = join(harnDir, 'runs', id);
         const slug = readSafe(join(runDir, 'prompt.txt'));
-        const sprint = readSafe(join(runDir, 'current_sprint'));
+        const sprint = readSafe(join(runDir, 'current_scope')) || readSafe(join(runDir, 'current_sprint'));
         lines.push(`- \`${id}\` ${slug ? `(${slug})` : ''} ${sprint ? `sprint ${sprint}` : ''}`);
       }
       return lines.join('\n');
@@ -330,7 +342,7 @@ async function executeSingle(action, params, { sd, harnDir, rootDir, configFile,
 export async function chat(message, { harnDir, rootDir, configFile, scriptDir, commandRunner, sse, history = [] }) {
   const config = loadConfig(configFile);
   const usedBackend = config.AI_BACKEND || detectAiCli() || 'copilot';
-  const usedModel = config.MODEL_AUXILIARY || config.COPILOT_MODEL_PLANNER || '';
+  const usedModel = config.AUXILIARY_MODEL || config.PLANNER_MODEL || '';
 
   // Build the full prompt: system + context + history + user message
   const systemPrompt = loadAssistantPrompt(scriptDir, harnDir);
@@ -393,7 +405,7 @@ export async function chat(message, { harnDir, rootDir, configFile, scriptDir, c
     const result = await aiGenerate({
       prompt: fullPrompt,
       backend: config.AI_BACKEND,
-      model: config.MODEL_AUXILIARY || config.COPILOT_MODEL_PLANNER,
+      model: config.AUXILIARY_MODEL || config.PLANNER_MODEL,
       cwd: rootDir,
     });
 

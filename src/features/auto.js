@@ -14,19 +14,19 @@ import { cmdRetrospective } from './retro.js';
 import { logStep, logOk, logInfo, logWarn } from '../core/logger.js';
 import { t } from '../core/i18n.js';
 import { printBatchProgress } from '../run/progress.js';
-import { getSprintDir } from '../core/config.js';
+import { getBacklogDir } from '../core/config.js';
 
 /**
  * Smart entry point: resumes → starts next → discovers.
  */
 export async function cmdAuto(ctx) {
   const { config, harnDir, rootDir, scriptDir } = ctx;
-  const sprintDir = getSprintDir(rootDir);
+  const sprintDir = getBacklogDir(rootDir);
 
   // 1. Resume in-progress run
   const curDir = currentRunDir(harnDir);
   if (curDir) {
-    const curSprint = readSafe(join(curDir, 'current_sprint'));
+    const curSprint = readSafe(join(curDir, 'current_scope')) || readSafe(join(curDir, 'current_sprint'));
     if (curSprint) {
       logInfo('Resuming in-progress run…');
       return cmdResume(ctx);
@@ -50,7 +50,7 @@ export async function cmdAuto(ctx) {
  */
 export async function cmdAll(ctx) {
   const { config, harnDir, rootDir, scriptDir } = ctx;
-  const sprintDir = getSprintDir(rootDir);
+  const sprintDir = getBacklogDir(rootDir);
   const pending = pendingSlugs(sprintDir);
 
   if (pending.length === 0) {
@@ -90,7 +90,7 @@ export async function cmdAll(ctx) {
  */
 export async function cmdStart(ctx) {
   const { config, harnDir, rootDir, scriptDir, slug: inputSlug, skipRetro, onLog, onData, onResult, sse } = ctx;
-  const sprintDir = getSprintDir(rootDir);
+  const sprintDir = getBacklogDir(rootDir);
 
   let slug = inputSlug;
   if (!slug) {
@@ -122,11 +122,21 @@ export async function cmdStart(ctx) {
 
   // Plan
   if (sse) {
-    const { detectBackend } = await import('../ai/backend.js');
+    const { detectAiCli } = await import('../ai/backend.js');
+    const planModel = config.PLANNER_MODEL || '';
+    // Infer backend from model name if per-role backend not set
+    const inferPlanBackend = () => {
+      if (config.PLANNER_BACKEND) return config.PLANNER_BACKEND;
+      const m = planModel.toLowerCase();
+      if (m.startsWith('claude-')) return 'claude';
+      if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) return 'codex';
+      if (m.startsWith('gemini-')) return 'gemini';
+      return config.AI_BACKEND || detectAiCli();
+    };
     sse.broadcastStatus({
       state: 'running', phase: 'plan',
-      backend: detectBackend(),
-      model: config.COPILOT_MODEL_PLANNER || '',
+      backend: inferPlanBackend(),
+      model: planModel,
       agent: 'planner',
       timestamp: Date.now(),
     });
@@ -134,7 +144,14 @@ export async function cmdStart(ctx) {
   await cmdPlan({ runDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, logFile });
 
   // Sprint loop
-  await runSprintLoop({ runDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, sse });
+  const { aborted } = await runSprintLoop({ runDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, sse });
+
+  if (aborted) {
+    // Stop → move back to Pending so it can be retried
+    moveItem(sprintDir, slug, 'Pending');
+    logWarn(`Stopped: ${slug} — moved back to Pending`);
+    return;
+  }
 
   // Move to Done
   moveItem(sprintDir, slug, 'Done');
@@ -175,7 +192,7 @@ export async function cmdResume(ctx) {
  * Show current status.
  */
 export function cmdStatus({ harnDir, config, rootDir }) {
-  const sprintDir = getSprintDir(rootDir);
+  const sprintDir = getBacklogDir(rootDir);
   const curDir = currentRunDir(harnDir);
 
   logStep('Status');
@@ -183,7 +200,7 @@ export function cmdStatus({ harnDir, config, rootDir }) {
   // Current run
   if (curDir) {
     const slug = readSafe(join(curDir, 'prompt.txt'));
-    const sprint = readSafe(join(curDir, 'current_sprint'));
+    const sprint = readSafe(join(curDir, 'current_scope')) || readSafe(join(curDir, 'current_sprint'));
     console.log(`  Active: ${slug || '?'}  Sprint: ${sprint || '?'}`);
   } else {
     console.log('  No active run');
@@ -214,7 +231,7 @@ export function cmdRuns({ harnDir }) {
   for (const run of runs) {
     const dir = join(harnDir, 'runs', run);
     const slug = readSafe(join(dir, 'prompt.txt'));
-    const completed = existsSync(join(dir, 'completed'));
+    const completed = existsSync(join(dir, 'run_report.md'));
     const icon = completed ? '✓' : '…';
     console.log(`  ${icon}  ${run}  ${slug || ''}`);
   }

@@ -56,11 +56,11 @@ export async function cmdInit({ rootDir, harnDir, scriptDir, configFile, version
 
   // 5. Per-role model selection
   const roleKeys = [
-    { key: 'COPILOT_MODEL_PLANNER',            label: 'Planner',              default: 'claude-haiku-4.5' },
-    { key: 'COPILOT_MODEL_GENERATOR_CONTRACT',  label: 'Generator (contract)', default: 'claude-sonnet-4.6' },
-    { key: 'COPILOT_MODEL_GENERATOR_IMPL',      label: 'Generator (impl)',     default: 'claude-opus-4.6' },
-    { key: 'COPILOT_MODEL_EVALUATOR_CONTRACT',   label: 'Evaluator (contract)', default: 'claude-haiku-4.5' },
-    { key: 'COPILOT_MODEL_EVALUATOR_QA',         label: 'Evaluator (QA)',       default: 'claude-sonnet-4.5' },
+    { key: 'PLANNER_MODEL',            label: 'Planner',              default: 'claude-haiku-4.5' },
+    { key: 'GENERATOR_CONTRACT_MODEL', label: 'Generator (contract)', default: 'claude-sonnet-4.6' },
+    { key: 'GENERATOR_IMPL_MODEL',     label: 'Generator (impl)',     default: 'claude-opus-4.6' },
+    { key: 'EVALUATOR_CONTRACT_MODEL', label: 'Evaluator (contract)', default: 'claude-haiku-4.5' },
+    { key: 'EVALUATOR_QA_MODEL',       label: 'Evaluator (QA)',       default: 'claude-sonnet-4.5' },
   ];
 
   const modelChoices = getModelsForBackend(aiBackend, harnDir);
