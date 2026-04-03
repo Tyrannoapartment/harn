@@ -29,11 +29,12 @@ export function ConsoleTabs() {
     renameSession,
   } = useConsoleSessions()
 
-  const { logs, connected, onAIChunk, onResult } = useSSE()
+  const { logs, connected, onAIChunk, onResult, onStatus } = useSSE()
   const [loading, setLoading] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
   const [rawLines, setRawLines] = useState<string[]>([])
   const prevLogCount = useRef(0)
+  const lastPhaseRef = useRef<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const editInputRef = useRef<HTMLInputElement>(null)
@@ -76,6 +77,42 @@ export function ConsoleTabs() {
       })
     })
   }, [onResult, activeId, addMessage])
+
+  // Pipe status events as activity messages in chat
+  useEffect(() => {
+    const PHASE_ACTIVITY: Record<string, string> = {
+      plan: '📋 Planner is generating plan…',
+      starting: '🚀 Sprint loop started',
+      contract: '📝 Generator is proposing a contract…',
+      implement: '⚡ Generator is implementing…',
+      evaluate: '🔍 Evaluator is reviewing…',
+      next: '➡️ Moving to next sprint…',
+      complete: '✅ Sprint loop complete',
+    }
+
+    return onStatus((s) => {
+      const phase = s.phase || ''
+      // Deduplicate — don't repeat the same phase
+      if (phase === lastPhaseRef.current) return
+      lastPhaseRef.current = phase
+
+      let text = PHASE_ACTIVITY[phase]
+      if (!text) {
+        if (s.state === 'waiting') text = '⏸ Waiting…'
+        else text = `🔄 Phase: ${phase}`
+      }
+
+      // Add sprint number context
+      if (s.sprint && s.totalSprints) {
+        text = `**Sprint ${s.sprint}/${s.totalSprints}** — ${text}`
+      }
+      if (s.iteration && s.iteration > 1) {
+        text += ` (iteration ${s.iteration})`
+      }
+
+      addMessage(activeId, 'system', text)
+    })
+  }, [onStatus, activeId, addMessage])
 
   const handleSubmit = useCallback(async (text: string) => {
     addMessage(activeId, 'user', text)

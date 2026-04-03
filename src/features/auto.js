@@ -121,6 +121,7 @@ export async function cmdStart(ctx) {
   moveItem(sprintDir, slug, 'In Progress');
 
   // Plan
+  if (sse) sse.broadcastStatus({ state: 'running', phase: 'plan', timestamp: Date.now() });
   await cmdPlan({ runDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, logFile });
 
   // Sprint loop

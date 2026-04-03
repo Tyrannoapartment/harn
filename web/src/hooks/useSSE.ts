@@ -8,6 +8,9 @@ export interface LogEntry {
 export interface RunStatus {
   state: 'running' | 'waiting' | 'error'
   phase?: string
+  sprint?: number
+  totalSprints?: number
+  iteration?: number
   timestamp: number
 }
 
