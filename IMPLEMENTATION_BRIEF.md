@@ -17,7 +17,7 @@ Its core behavior today:
 - runs a Planner -> Generator -> Evaluator loop
 - persists run state under `.harn/` in the target project
 - invokes AI CLIs for different roles
-- keeps artifacts such as `plan.txt`, `spec.md`, `sprint-backlog.md`, `contract.md`, `implementation.md`, `qa-report.md`, and `handoff.md`
+- keeps artifacts such as `plan.txt`, `spec.md`, `sprint-plan.md`, `contract.md`, `implementation.md`, `qa-report.md`, and `handoff.md`
 
 The existing Bash engine is the core product. The current terminal UI is not.
 

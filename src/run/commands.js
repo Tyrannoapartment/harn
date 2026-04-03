@@ -117,7 +117,7 @@ export async function cmdPlan({ slug, runDir, config, harnDir, rootDir, scriptDi
     plannerTemplate,
     `\n\n## Backlog Item\n\n**${item}**\n${itemDesc}`,
     `\n\nTarget sprint count: ${sprintCount}`,
-    '\n\nOutput your result using the exact section markers:\n=== plan.text ===\n=== spec.md ===\n=== sprint-backlog.md ===',
+    '\n\nOutput your result using the exact section markers:\n=== plan.text ===\n=== spec.md ===\n=== sprint-plan.md ===',
   ].join('');
 
   const { output, backend, model } = await invokeRoleStreaming({
@@ -128,11 +128,11 @@ export async function cmdPlan({ slug, runDir, config, harnDir, rootDir, scriptDi
   // Parse sections
   const planText = extractSection(output, 'plan.text');
   const specMd = extractSection(output, 'spec.md');
-  const sprintBacklog = extractSection(output, 'sprint-backlog.md');
+  const sprintBacklog = extractSection(output, 'sprint-plan.md');
 
   writeFileSync(join(runDir, 'plan.txt'), planText);
   writeFileSync(join(runDir, 'spec.md'), specMd);
-  writeFileSync(join(runDir, 'sprint-backlog.md'), sprintBacklog);
+  writeFileSync(join(runDir, 'sprint-plan.md'), sprintBacklog);
 
   // Update plan line in backlog
   if (planText) upsertPlanLine(sd, item, planText);
@@ -158,8 +158,8 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
 
   const spec = existsSync(join(runDir, 'spec.md'))
     ? readFileSync(join(runDir, 'spec.md'), 'utf-8') : '';
-  const sb = existsSync(join(runDir, 'sprint-backlog.md'))
-    ? readFileSync(join(runDir, 'sprint-backlog.md'), 'utf-8') : '';
+  const sb = existsSync(join(runDir, 'sprint-plan.md'))
+    ? readFileSync(join(runDir, 'sprint-plan.md'), 'utf-8') : '';
 
   // Generator proposes contract
   const genTemplate = loadPrompt('generator', harnDir, scriptDir);
@@ -167,7 +167,7 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
   const genPrompt = [
     genTemplate,
     `\n\n## Product Spec\n\n${spec}`,
-    `\n\n## Sprint Backlog\n\n${sb}`,
+    `\n\n## Sprint Plan\n\n${sb}`,
     `\n\nYou are working on Sprint ${sprintNum}. Propose a contract (scope definition) for this sprint.`,
   ].join('');
 
@@ -189,7 +189,7 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
     const evalPrompt = [
       evalTemplate,
       `\n\n## Proposed Contract\n\n${contractContent}`,
-      `\n\n## Sprint Backlog\n\n${sb}`,
+      `\n\n## Sprint Plan\n\n${sb}`,
       '\n\nReview this contract. Respond with APPROVED or NEEDS_REVISION on its own line.',
     ].join('');
 

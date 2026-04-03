@@ -73,7 +73,7 @@ harn memory              # show project memory
 ## Sprint Loop
 
 ```
-[Planner]   spec.md + sprint-backlog.md
+[Planner]   spec.md + sprint-plan.md
      │
      ▼  per sprint ──────────────────────────────────────────────────┐
      │  [Generator]  propose scope                                   │

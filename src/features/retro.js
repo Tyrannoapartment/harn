@@ -16,7 +16,7 @@ export async function cmdRetrospective({ runDir, harnDir, config, scriptDir, roo
 
   // Gather sprint data
   const spec = readSafe(join(runDir, 'spec.md'));
-  const sprintBacklog = readSafe(join(runDir, 'sprint-backlog.md'));
+  const sprintBacklog = readSafe(join(runDir, 'sprint-plan.md'));
   const handoff = readSafe(join(runDir, 'handoff.md'));
 
   // Collect all sprint outcomes
@@ -36,7 +36,7 @@ export async function cmdRetrospective({ runDir, harnDir, config, scriptDir, roo
     'You are performing a retrospective analysis on a completed sprint run.',
     '\n## Product Spec',
     spec,
-    '\n## Sprint Backlog',
+    '\n## Sprint Plan',
     sprintBacklog,
     '\n## Sprint Outcomes',
     sprintSummaries.join('\n\n'),

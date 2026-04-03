@@ -117,7 +117,7 @@ export function setSprintIteration(runDir, num, iter) {
   writeFileSync(join(dir, 'iteration'), String(iter));
 }
 
-/** Count ## Sprint markers in sprint-backlog content. */
+/** Count ## Sprint markers in sprint-plan content. */
 export function countSprintsInBacklog(content) {
   const matches = content.match(/^## Sprint/gm);
   return matches ? matches.length : 0;

@@ -28,7 +28,7 @@ All state for a run lives under `.harness/` in the **target project directory** 
     prompt.txt         # selected backlog slug
     plan.txt           # one-line plan text
     spec.md            # product spec from planner
-    sprint-backlog.md  # sprint definitions from planner
+    sprint-plan.md  # sprint definitions from planner
     sprints/
       001/
         contract.md       # agreed sprint scope
@@ -43,7 +43,7 @@ All state for a run lives under `.harness/` in the **target project directory** 
 
 ```
 cmd_start
-  └─ cmd_plan (Planner: backlog item → spec.md + sprint-backlog.md)
+  └─ cmd_plan (Planner: backlog item → spec.md + sprint-plan.md)
       └─ _run_sprint_loop
           ├─ cmd_contract (Generator proposes scope → Evaluator approves/revises)
           ├─ cmd_implement (Generator implements; retries up to MAX_ITERATIONS on FAIL)
@@ -92,7 +92,7 @@ Slugs must have no spaces — they're used as programmatic identifiers. When `cm
 
 Agents are expected to output **exact section markers** that `awk` parses:
 
-- Planner: `=== plan.text ===`, `=== spec.md ===`, `=== sprint-backlog.md ===`
+- Planner: `=== plan.text ===`, `=== spec.md ===`, `=== sprint-plan.md ===`
 - Retrospective: `=== retro-summary ===`, `=== prompt-suggestion:planner ===`, etc.
 - Evaluator verdict: must end with exactly `VERDICT: PASS` or `VERDICT: FAIL` on its own line
 - Contract review: must contain `APPROVED` or `NEEDS_REVISION` on its own line

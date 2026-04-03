@@ -87,7 +87,7 @@ All state for a run lives under `.harn/` in the **target project directory** (no
     prompt.txt           # selected backlog slug
     plan.txt             # one-line plan text
     spec.md              # product spec from planner
-    sprint-backlog.md    # sprint definitions
+    sprint-plan.md    # sprint definitions
     current_sprint       # current sprint number
     sprints/
       001/
@@ -125,7 +125,7 @@ Two distinct paths:
 
 Agents output **exact section markers** parsed by `awk`. Do not change these strings:
 
-- Planner: `=== plan.text ===`, `=== spec.md ===`, `=== sprint-backlog.md ===`
+- Planner: `=== plan.text ===`, `=== spec.md ===`, `=== sprint-plan.md ===`
 - Evaluator verdict: must end with exactly `VERDICT: PASS` or `VERDICT: FAIL` on its own line
 - Contract review: must contain `APPROVED` or `NEEDS_REVISION` on its own line
 - Retrospective: `=== retro-summary ===`, `=== prompt-suggestion:planner ===`, `=== prompt-suggestion:generator ===`, `=== prompt-suggestion:evaluator ===`

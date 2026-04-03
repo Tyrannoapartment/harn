@@ -327,7 +327,7 @@ The app must allow viewing:
 
 - `plan.txt`
 - `spec.md`
-- `sprint-backlog.md`
+- `sprint-plan.md`
 - `contract.md`
 - `implementation.md`
 - `qa-report.md`
