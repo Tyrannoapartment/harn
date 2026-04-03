@@ -121,7 +121,16 @@ export async function cmdStart(ctx) {
   moveItem(sprintDir, slug, 'In Progress');
 
   // Plan
-  if (sse) sse.broadcastStatus({ state: 'running', phase: 'plan', timestamp: Date.now() });
+  if (sse) {
+    const { detectBackend } = await import('../ai/backend.js');
+    sse.broadcastStatus({
+      state: 'running', phase: 'plan',
+      backend: detectBackend(),
+      model: config.COPILOT_MODEL_PLANNER || '',
+      agent: 'planner',
+      timestamp: Date.now(),
+    });
+  }
   await cmdPlan({ runDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, logFile });
 
   // Sprint loop

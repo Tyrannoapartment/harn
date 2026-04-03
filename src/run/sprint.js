@@ -14,6 +14,8 @@ import { logInfo, logOk, logWarn, logErr, logStep } from '../core/logger.js';
 import { t } from '../core/i18n.js';
 import { progressBar, formatElapsed } from './progress.js';
 
+import { detectBackend } from '../ai/backend.js';
+
 /**
  * Main sprint loop: contract → implement → evaluate → next.
  */
@@ -23,6 +25,22 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
 
   const startTime = Date.now();
   let aborted = false;
+  const backend = detectBackend();
+
+  // Model lookup per phase
+  const phaseModel = (phase) => {
+    const m = {
+      plan: config.COPILOT_MODEL_PLANNER,
+      contract: config.COPILOT_MODEL_GENERATOR_CONTRACT,
+      implement: config.COPILOT_MODEL_GENERATOR_IMPL,
+      evaluate: config.COPILOT_MODEL_EVALUATOR_QA,
+    };
+    return m[phase] || '';
+  };
+  const phaseAgent = (phase) => {
+    const a = { plan: 'planner', contract: 'generator', implement: 'generator', evaluate: 'evaluator', next: 'evaluator' };
+    return a[phase] || '';
+  };
 
   // Graceful shutdown handler
   const cleanup = () => {
@@ -34,7 +52,11 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
 
   // Helper to broadcast status/progress
   const emitStatus = (phase, extra = {}) => {
-    if (sse) sse.broadcastStatus({ state: 'running', phase, runDir, ...extra });
+    if (sse) sse.broadcastStatus({
+      state: 'running', phase, runDir,
+      backend, model: phaseModel(phase), agent: phaseAgent(phase),
+      ...extra,
+    });
   };
   const emitProgress = (currentSprint, totalSprints, phase, iteration) => {
     const data = { currentSprint, totalSprints, phase, iteration, startTime, elapsed: Date.now() - startTime };

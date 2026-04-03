@@ -78,39 +78,45 @@ export function ConsoleTabs() {
     })
   }, [onResult, activeId, addMessage])
 
-  // Pipe status events as activity messages in chat
+  // Pipe status events as activity messages in chat (styled like assistant with AILogo)
   useEffect(() => {
-    const PHASE_ACTIVITY: Record<string, string> = {
-      plan: '📋 Planner is generating plan…',
-      starting: '🚀 Sprint loop started',
-      contract: '📝 Generator is proposing a contract…',
-      implement: '⚡ Generator is implementing…',
-      evaluate: '🔍 Evaluator is reviewing…',
-      next: '➡️ Moving to next sprint…',
-      complete: '✅ Sprint loop complete',
+    const PHASE_ACTIVITY: Record<string, { label: string; emoji: string }> = {
+      plan: { label: 'Planner', emoji: '📋' },
+      starting: { label: 'Sprint Loop', emoji: '🚀' },
+      contract: { label: 'Generator', emoji: '📝' },
+      implement: { label: 'Generator', emoji: '⚡' },
+      evaluate: { label: 'Evaluator', emoji: '🔍' },
+      next: { label: 'Sprint', emoji: '➡️' },
+      complete: { label: 'Sprint Loop', emoji: '✅' },
+    }
+
+    const PHASE_DESC: Record<string, string> = {
+      plan: 'Generating plan…',
+      starting: 'Sprint loop started',
+      contract: 'Proposing contract…',
+      implement: 'Implementing…',
+      evaluate: 'Reviewing implementation…',
+      next: 'Moving to next sprint…',
+      complete: 'All sprints complete!',
     }
 
     return onStatus((s) => {
       const phase = s.phase || ''
-      // Deduplicate — don't repeat the same phase
       if (phase === lastPhaseRef.current) return
       lastPhaseRef.current = phase
 
-      let text = PHASE_ACTIVITY[phase]
-      if (!text) {
-        if (s.state === 'waiting') text = '⏸ Waiting…'
-        else text = `🔄 Phase: ${phase}`
-      }
+      const info = PHASE_ACTIVITY[phase]
+      const desc = PHASE_DESC[phase] || `Phase: ${phase}`
 
-      // Add sprint number context
+      let text = `${info?.emoji || '🔄'} **${info?.label || phase}** — ${desc}`
       if (s.sprint && s.totalSprints) {
-        text = `**Sprint ${s.sprint}/${s.totalSprints}** — ${text}`
+        text = `**Sprint ${s.sprint}/${s.totalSprints}**\n\n${text}`
       }
       if (s.iteration && s.iteration > 1) {
-        text += ` (iteration ${s.iteration})`
+        text += ` *(iteration ${s.iteration})*`
       }
 
-      addMessage(activeId, 'system', text)
+      addMessage(activeId, 'assistant', text, s.backend, s.model)
     })
   }, [onStatus, activeId, addMessage])
 

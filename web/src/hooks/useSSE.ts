@@ -11,6 +11,9 @@ export interface RunStatus {
   sprint?: number
   totalSprints?: number
   iteration?: number
+  backend?: string
+  model?: string
+  agent?: string
   timestamp: number
 }
 
