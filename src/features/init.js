@@ -28,14 +28,7 @@ export async function cmdInit({ rootDir, harnDir, scriptDir, configFile, version
   }]);
   setLang(lang);
 
-  // 2. Backlog path
-  const { backlogFile } = await inquirer.prompt([{
-    type: 'input', name: 'backlogFile',
-    message: t('INIT_BACKLOG'),
-    default: 'sprint-backlog.md',
-  }]);
-
-  // 3. Max iterations
+  // 2. Max iterations
   const { maxIter } = await inquirer.prompt([{
     type: 'number', name: 'maxIter',
     message: t('INIT_ITERATIONS'),
@@ -98,7 +91,6 @@ export async function cmdInit({ rootDir, harnDir, scriptDir, configFile, version
   const cfg = {
     HARN_LANG: lang,
     AI_BACKEND: aiBackend,
-    BACKLOG_FILE: backlogFile,
     MAX_ITERATIONS: String(maxIter),
     GIT_ENABLED: gitEnabled ? 'true' : 'false',
     ...models,

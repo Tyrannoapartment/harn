@@ -3,10 +3,10 @@
  * Replaces lib/auto.sh
  */
 
-import { existsSync, readFileSync, readdirSync, symlinkSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { pendingSlugs, inProgressSlug, moveItem } from '../backlog/backlog.js';
-import { createRun, sprintStateFor, listRuns, currentRunDir } from '../run/run.js';
+import { createRun, listRuns, currentRunDir, syncRunLog } from '../run/run.js';
 import { runSprintLoop } from '../run/sprint.js';
 import { cmdPlan } from '../run/commands.js';
 import { cmdDiscover } from './discover.js';
@@ -14,13 +14,14 @@ import { cmdRetrospective } from './retro.js';
 import { logStep, logOk, logInfo, logWarn } from '../core/logger.js';
 import { t } from '../core/i18n.js';
 import { printBatchProgress } from '../run/progress.js';
+import { getSprintDir } from '../core/config.js';
 
 /**
  * Smart entry point: resumes → starts next → discovers.
  */
 export async function cmdAuto(ctx) {
   const { config, harnDir, rootDir, scriptDir } = ctx;
-  const backlogFile = config.BACKLOG_FILE;
+  const sprintDir = getSprintDir(rootDir);
 
   // 1. Resume in-progress run
   const curDir = currentRunDir(harnDir);
@@ -33,7 +34,7 @@ export async function cmdAuto(ctx) {
   }
 
   // 2. Start next pending item
-  const pending = pendingSlugs(backlogFile);
+  const pending = pendingSlugs(sprintDir);
   if (pending.length > 0) {
     logInfo(`Starting next item: ${pending[0]}`);
     return cmdStart({ ...ctx, slug: pending[0] });
@@ -49,8 +50,8 @@ export async function cmdAuto(ctx) {
  */
 export async function cmdAll(ctx) {
   const { config, harnDir, rootDir, scriptDir } = ctx;
-  const backlogFile = config.BACKLOG_FILE;
-  const pending = pendingSlugs(backlogFile);
+  const sprintDir = getSprintDir(rootDir);
+  const pending = pendingSlugs(sprintDir);
 
   if (pending.length === 0) {
     logInfo('No pending items.');
@@ -88,12 +89,12 @@ export async function cmdAll(ctx) {
  * Start a specific backlog item (or prompt for selection).
  */
 export async function cmdStart(ctx) {
-  const { config, harnDir, rootDir, scriptDir, slug: inputSlug, skipRetro } = ctx;
-  const backlogFile = config.BACKLOG_FILE;
+  const { config, harnDir, rootDir, scriptDir, slug: inputSlug, skipRetro, onLog, onData, onResult, sse } = ctx;
+  const sprintDir = getSprintDir(rootDir);
 
   let slug = inputSlug;
   if (!slug) {
-    const pending = pendingSlugs(backlogFile);
+    const pending = pendingSlugs(sprintDir);
     if (pending.length === 0) {
       logWarn('No pending items.');
       return;
@@ -112,19 +113,21 @@ export async function cmdStart(ctx) {
   logStep(`Starting: ${slug}`);
 
   // Create run directory
-  const runDir = createRun(harnDir, slug);
+  const { id, runDir } = createRun(harnDir);
+  const logFile = syncRunLog(harnDir, runDir);
+  writeFileSync(join(runDir, 'prompt.txt'), slug);
 
   // Move to In Progress
-  moveItem(backlogFile, slug, 'In Progress');
+  moveItem(sprintDir, slug, 'In Progress');
 
   // Plan
-  await cmdPlan({ runDir, harnDir, config, scriptDir, rootDir, slug });
+  await cmdPlan({ runDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, logFile });
 
   // Sprint loop
-  await runSprintLoop({ runDir, harnDir, config, scriptDir, rootDir, slug });
+  await runSprintLoop({ runDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, sse });
 
   // Move to Done
-  moveItem(backlogFile, slug, 'Done');
+  moveItem(sprintDir, slug, 'Done');
   logOk(`Completed: ${slug}`);
 
   // Retrospective
@@ -139,7 +142,7 @@ export async function cmdStart(ctx) {
  * Resume an in-progress run.
  */
 export async function cmdResume(ctx) {
-  const { harnDir, config, scriptDir, rootDir } = ctx;
+  const { harnDir, config, scriptDir, rootDir, onLog, onData, onResult, sse } = ctx;
   const curDir = currentRunDir(harnDir);
 
   if (!curDir) {
@@ -154,15 +157,15 @@ export async function cmdResume(ctx) {
   }
 
   logStep(`Resuming: ${slug}`);
-  await runSprintLoop({ runDir: curDir, harnDir, config, scriptDir, rootDir, slug });
+  await runSprintLoop({ runDir: curDir, harnDir, config, scriptDir, rootDir, slug, onLog, onData, onResult, sse });
   logOk(`Completed: ${slug}`);
 }
 
 /**
  * Show current status.
  */
-export function cmdStatus({ harnDir, config }) {
-  const backlogFile = config.BACKLOG_FILE;
+export function cmdStatus({ harnDir, config, rootDir }) {
+  const sprintDir = getSprintDir(rootDir);
   const curDir = currentRunDir(harnDir);
 
   logStep('Status');
@@ -177,11 +180,9 @@ export function cmdStatus({ harnDir, config }) {
   }
 
   // Backlog summary
-  if (existsSync(backlogFile)) {
-    const pending = pendingSlugs(backlogFile);
-    const ip = inProgressSlug(backlogFile);
-    console.log(`  Pending: ${pending.length}  In Progress: ${ip || 'none'}`);
-  }
+  const pending = pendingSlugs(sprintDir);
+  const ip = inProgressSlug(sprintDir);
+  console.log(`  Pending: ${pending.length}  In Progress: ${ip || 'none'}`);
 
   // Recent runs
   const runs = listRuns(harnDir);

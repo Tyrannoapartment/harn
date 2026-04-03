@@ -17,7 +17,7 @@ import { progressBar, formatElapsed } from './progress.js';
 /**
  * Main sprint loop: contract → implement → evaluate → next.
  */
-export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDir, onLog, onProgress }) {
+export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDir, onLog, onData, sse, onProgress, onResult }) {
   const pidFile = join(harnDir, 'harn.pid');
   writeFileSync(pidFile, String(process.pid));
 
@@ -32,12 +32,23 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
 
+  // Helper to broadcast status/progress
+  const emitStatus = (phase, extra = {}) => {
+    if (sse) sse.broadcastStatus({ state: 'running', phase, runDir, ...extra });
+  };
+  const emitProgress = (currentSprint, totalSprints, phase, iteration) => {
+    const data = { currentSprint, totalSprints, phase, iteration, startTime, elapsed: Date.now() - startTime };
+    if (sse) sse.broadcastProgress(data);
+    if (onProgress) onProgress(data);
+  };
+
   try {
     const totalFile = join(runDir, 'sprint_count');
     const totalSprints = existsSync(totalFile)
       ? parseInt(readFileSync(totalFile, 'utf-8').trim(), 10) : 1;
     const maxIterations = parseInt(config.MAX_ITERATIONS, 10) || 5;
 
+    emitStatus('starting', { totalSprints });
     let currentSprint = currentSprintNum(runDir);
 
     while (currentSprint <= totalSprints && !aborted) {
@@ -47,7 +58,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
       // Progress display
       const elapsed = formatElapsed(startTime);
       logStep(`Sprint ${currentSprint}/${totalSprints}  ${progressBar(currentSprint - 1, totalSprints, 20)}  ${elapsed}`);
-      if (onProgress) onProgress({ currentSprint, totalSprints, startTime });
+      emitProgress(currentSprint, totalSprints, 'starting', 0);
 
       // Skip already-passed sprints
       if (status === 'pass') {
@@ -60,7 +71,9 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
       // Contract phase
       const contractFile = join(sDir, 'contract.md');
       if (!existsSync(contractFile)) {
-        await cmdContract({ runDir, sprintNum: currentSprint, config, harnDir, scriptDir, onLog });
+        emitStatus('contract', { sprint: currentSprint, totalSprints });
+        emitProgress(currentSprint, totalSprints, 'contract', 0);
+        await cmdContract({ runDir, sprintNum: currentSprint, config, harnDir, scriptDir, onLog, onData, onResult });
       }
 
       // Implementation + evaluation loop
@@ -72,20 +85,26 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
         logInfo(`${t('SPRINT_START')} ${currentSprint} — iteration ${iter}/${maxIterations}`);
 
         // Implement
-        await cmdImplement({ runDir, sprintNum: currentSprint, config, harnDir, scriptDir, onLog });
+        emitStatus('implement', { sprint: currentSprint, iteration: iter, totalSprints });
+        emitProgress(currentSprint, totalSprints, 'implement', iter);
+        await cmdImplement({ runDir, sprintNum: currentSprint, config, harnDir, scriptDir, onLog, onData, onResult });
 
         // Evaluate
+        emitStatus('evaluate', { sprint: currentSprint, iteration: iter, totalSprints });
+        emitProgress(currentSprint, totalSprints, 'evaluate', iter);
         const { verdict } = await cmdEvaluate({
-          runDir, sprintNum: currentSprint, config, harnDir, scriptDir, rootDir, onLog,
+          runDir, sprintNum: currentSprint, config, harnDir, scriptDir, rootDir, onLog, onData, onResult,
         });
 
         if (verdict === 'pass') {
           passed = true;
           logOk(t('SPRINT_PASS'));
+          emitProgress(currentSprint, totalSprints, 'pass', iter);
           break;
         }
 
         logWarn(`${t('SPRINT_FAIL')} — iteration ${iter}/${maxIterations}`);
+        emitProgress(currentSprint, totalSprints, 'fail', iter);
         iter++;
       }
 
@@ -95,6 +114,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
       }
 
       // Next
+      emitStatus('next', { sprint: currentSprint, totalSprints });
       const { complete } = await cmdNext({
         runDir, sprintNum: currentSprint, config, harnDir, scriptDir, rootDir, onLog,
       });
@@ -106,6 +126,8 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
     if (!aborted) {
       logOk(t('RUN_COMPLETE'));
     }
+    // Broadcast completion
+    if (sse) sse.broadcastStatus({ state: 'waiting', phase: 'complete' });
   } finally {
     process.removeListener('SIGINT', cleanup);
     process.removeListener('SIGTERM', cleanup);

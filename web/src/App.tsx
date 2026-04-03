@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Sidebar,
   SidebarContent,
@@ -27,53 +27,63 @@ import {
   Sun01Icon,
   FlashIcon,
   StopIcon,
+  FileCodeIcon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useTheme } from '@/hooks/useTheme'
-import { useSSE } from '@/hooks/useSSE'
-import { LogFeed } from '@/components/LogFeed'
-import { Composer } from '@/components/Composer'
+import { useSSE, type RunStatus as SSERunStatus, type RunProgress } from '@/hooks/useSSE'
+import { useI18n } from '@/hooks/useI18n'
+import { ConsoleTabs } from '@/components/ConsoleTabs'
 import { BacklogPanel } from '@/components/BacklogPanel'
 import { RunsPanel } from '@/components/RunsPanel'
 import { SettingsPanel } from '@/components/SettingsPanel'
 import { MemoryPanel } from '@/components/MemoryPanel'
+import { PromptsPanel } from '@/components/PromptsPanel'
 import { api } from '@/lib/api'
 
-type Page = 'home' | 'backlog' | 'runs' | 'settings' | 'memory'
+type Page = 'home' | 'backlog' | 'runs' | 'settings' | 'memory' | 'prompts'
 
-const NAV = [
-  { id: 'home' as Page, label: 'Console', icon: Home01Icon },
-  { id: 'backlog' as Page, label: 'Backlog', icon: Layers01Icon },
-  { id: 'runs' as Page, label: 'Runs', icon: WorkHistoryIcon },
-  { id: 'memory' as Page, label: 'Memory', icon: Brain01Icon },
-  { id: 'settings' as Page, label: 'Settings', icon: Settings01Icon },
-]
+const NAV_KEYS: Record<Page, string> = {
+  home: 'nav.console',
+  backlog: 'nav.backlog',
+  runs: 'nav.runs',
+  prompts: 'nav.prompts',
+  memory: 'nav.memory',
+  settings: 'nav.settings',
+}
+
+const NAV_ICONS: Record<Page, any> = {
+  home: Home01Icon,
+  backlog: Layers01Icon,
+  runs: WorkHistoryIcon,
+  prompts: FileCodeIcon,
+  memory: Brain01Icon,
+  settings: Settings01Icon,
+}
+
+const NAV_ORDER: Page[] = ['home', 'backlog', 'runs', 'prompts', 'memory', 'settings']
 
 function AppSidebar({ page, setPage }: { page: Page; setPage: (p: Page) => void }) {
+  const { t } = useI18n()
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="py-3 px-2">
-        <div className="flex items-center gap-2 px-1">
-          <div className="h-7 w-7 rounded bg-primary flex items-center justify-center shrink-0">
-            <HugeiconsIcon icon={FlashIcon} size={14} className="text-primary-foreground" />
-          </div>
-          <span className="font-bold text-sm tracking-tight group-data-[collapsible=icon]:hidden">harn</span>
-        </div>
+      <SidebarHeader className="py-2 px-2">
+        <SidebarTrigger className="h-8 w-8" />
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV.map((item) => (
-                <SidebarMenuItem key={item.id}>
+              {NAV_ORDER.map((id) => (
+                <SidebarMenuItem key={id}>
                   <SidebarMenuButton
-                    isActive={page === item.id}
-                    onClick={() => setPage(item.id)}
-                    tooltip={item.label}
+                    isActive={page === id}
+                    onClick={() => setPage(id)}
+                    tooltip={t(NAV_KEYS[id])}
                   >
-                    <HugeiconsIcon icon={item.icon} size={16} />
-                    <span>{item.label}</span>
+                    <HugeiconsIcon icon={NAV_ICONS[id]} size={16} />
+                    <span>{t(NAV_KEYS[id])}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -93,36 +103,77 @@ function AppSidebar({ page, setPage }: { page: Page; setPage: (p: Page) => void 
   )
 }
 
+type RunStatusUI = 'waiting' | 'running' | 'error'
+
+const PAGE_TITLE_KEYS: Record<Page, string> = {
+  home: 'page.console',
+  backlog: 'page.backlog',
+  runs: 'page.runs',
+  prompts: 'page.prompts',
+  settings: 'page.settings',
+  memory: 'page.memory',
+}
+
 function Header({
   page,
-  running,
+  runStatus,
+  runPhase,
+  projectPath,
   onAuto,
   onStop,
 }: {
   page: Page
-  running: boolean
+  runStatus: RunStatusUI
+  runPhase: string | null
+  projectPath: string
   onAuto: () => void
   onStop: () => void
 }) {
   const { resolved, setTheme } = useTheme()
-  const labels: Record<Page, string> = {
-    home: 'Console',
-    backlog: 'Backlog',
-    runs: 'Runs',
-    settings: 'Settings',
-    memory: 'Project Memory',
-  }
+  const { t } = useI18n()
 
   return (
     <header className="flex items-center h-12 px-4 border-b shrink-0 gap-3">
-      <SidebarTrigger />
-      <Separator orientation="vertical" className="h-4" />
-      <h1 className="font-semibold text-sm flex-1">{labels[page]}</h1>
+      <div className="flex items-center gap-2">
+        <div className="h-6 w-6 rounded bg-primary flex items-center justify-center shrink-0">
+          <HugeiconsIcon icon={FlashIcon} size={12} className="text-primary-foreground" />
+        </div>
+        <span className="font-bold text-sm tracking-tight">harn</span>
+      </div>
 
-      {running && (
-        <Badge variant="secondary" className="gap-1.5 text-xs">
+      <Separator orientation="vertical" className="h-4" />
+      <h1 className="font-medium text-sm flex-1 text-muted-foreground">{t(PAGE_TITLE_KEYS[page])}</h1>
+
+      {projectPath && (() => {
+        const sep = projectPath.includes('/') ? '/' : '\\'
+        const parts = projectPath.split(sep).filter(Boolean)
+        const display = parts.length > 2
+          ? `...${sep}${parts.slice(-2).join(sep)}`
+          : projectPath
+        return (
+          <span
+            className="text-xs text-muted-foreground font-mono shrink-0"
+            title={projectPath}
+          >
+            {display}
+          </span>
+        )
+      })()}
+
+      {runStatus === 'running' ? (
+        <Badge variant="secondary" className="gap-1.5 text-xs shrink-0">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          Running
+          {t('header.running')}{runPhase ? ` · ${t(`phase.${runPhase}`)}` : ''}
+        </Badge>
+      ) : runStatus === 'error' ? (
+        <Badge variant="destructive" className="gap-1.5 text-xs shrink-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-red-300" />
+          {t('header.error')}
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="gap-1.5 text-xs shrink-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+          {t('header.waiting')}
         </Badge>
       )}
 
@@ -130,21 +181,21 @@ function Header({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="sm" variant="default" className="h-7 gap-1.5 text-xs px-3" onClick={onAuto} disabled={running}>
+              <Button size="sm" variant="default" className="h-7 gap-1.5 text-xs px-3" onClick={onAuto} disabled={runStatus === 'running'}>
                 <HugeiconsIcon icon={FlashIcon} size={12} />
-                Auto
+                {t('header.auto')}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Run next backlog item automatically</TooltipContent>
+            <TooltipContent>{t('header.autoTooltip')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs px-3" onClick={onStop} disabled={!running}>
+              <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs px-3" onClick={onStop} disabled={runStatus !== 'running'}>
                 <HugeiconsIcon icon={StopIcon} size={12} />
-                Stop
+                {t('header.stop')}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Stop current run</TooltipContent>
+            <TooltipContent>{t('header.stopTooltip')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -157,7 +208,7 @@ function Header({
                 <HugeiconsIcon icon={resolved === 'dark' ? Sun01Icon : Moon01Icon} size={14} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Toggle theme</TooltipContent>
+            <TooltipContent>{t('header.toggleTheme')}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
       </div>
@@ -167,24 +218,69 @@ function Header({
 
 export default function App() {
   const [page, setPage] = useState<Page>('home')
-  const [running, setRunning] = useState(false)
-  const { logs, connected } = useSSE()
+  const [runStatus, setRunStatus] = useState<RunStatusUI>('waiting')
+  const [runPhase, setRunPhase] = useState<string | null>(null)
+  const [projectPath, setProjectPath] = useState('')
 
+  const sse = useSSE()
+
+  // SSE-driven status updates (primary)
+  useEffect(() => {
+    return sse.onStatus((s: SSERunStatus) => {
+      if (s.state === 'running') {
+        setRunStatus('running')
+        setRunPhase(s.phase || null)
+      } else if (s.state === 'error') {
+        setRunStatus('error')
+        setRunPhase(null)
+      } else {
+        setRunStatus('waiting')
+        setRunPhase(null)
+      }
+    })
+  }, [sse.onStatus])
+
+  // SSE-driven progress updates
+  useEffect(() => {
+    return sse.onProgress((p: RunProgress) => {
+      setRunStatus('running')
+      setRunPhase(p.phase)
+    })
+  }, [sse.onProgress])
+
+  // Polling as fallback (slower, checks actual harn.pid)
   useEffect(() => {
     const check = () =>
-      api.status().then((s) => setRunning(!!s.active)).catch(() => {})
+      api.status()
+        .then((s) => {
+          if (s.isRunning) {
+            setRunStatus('running')
+          } else if (runStatus === 'running') {
+            // Only downgrade from running→waiting via polling if SSE hasn't said otherwise
+            setRunStatus('waiting')
+            setRunPhase(null)
+          }
+          if (s.rootDir) setProjectPath(s.rootDir)
+        })
+        .catch(() => setRunStatus('error'))
     check()
-    const t = setInterval(check, 3000)
+    const t = setInterval(check, 5000)
     return () => clearInterval(t)
   }, [])
 
-  const handleAuto = async () => {
-    try { await api.runCommand('auto') } catch { /* ignore */ }
-  }
+  const handleAuto = useCallback(async () => {
+    setRunStatus('running')
+    setRunPhase('starting')
+    try {
+      await api.runCommand('auto')
+    } catch { /* ignore */ }
+  }, [])
 
-  const handleStop = async () => {
+  const handleStop = useCallback(async () => {
     try { await api.stopCommand() } catch { /* ignore */ }
-  }
+    setRunStatus('waiting')
+    setRunPhase(null)
+  }, [])
 
   return (
     <TooltipProvider>
@@ -193,24 +289,38 @@ export default function App() {
           <AppSidebar page={page} setPage={setPage} />
 
           <SidebarInset className="flex flex-col flex-1 overflow-hidden">
-            <Header page={page} running={running} onAuto={handleAuto} onStop={handleStop} />
+            <Header
+              page={page}
+              runStatus={runStatus}
+              runPhase={runPhase}
+              projectPath={projectPath}
+              onAuto={handleAuto}
+              onStop={handleStop}
+            />
 
             <main className="flex-1 overflow-hidden">
               {page === 'home' ? (
-                <div className="flex flex-col h-full">
-                  <div className="flex-1 overflow-hidden">
-                    <LogFeed logs={logs} connected={connected} />
-                  </div>
-                  <Composer />
-                </div>
+                <ConsoleTabs />
               ) : page === 'backlog' ? (
-                <BacklogPanel />
+                <div className="h-full overflow-hidden">
+                  <BacklogPanel />
+                </div>
               ) : page === 'runs' ? (
-                <RunsPanel />
+                <div className="h-full overflow-hidden">
+                  <RunsPanel sse={sse} />
+                </div>
               ) : page === 'settings' ? (
-                <SettingsPanel />
+                <div className="h-full overflow-hidden">
+                  <SettingsPanel />
+                </div>
               ) : page === 'memory' ? (
-                <MemoryPanel />
+                <div className="h-full overflow-hidden">
+                  <MemoryPanel />
+                </div>
+              ) : page === 'prompts' ? (
+                <div className="h-full overflow-hidden">
+                  <PromptsPanel />
+                </div>
               ) : null}
             </main>
           </SidebarInset>

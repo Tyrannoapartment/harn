@@ -1,7 +1,8 @@
 .git/
 .github/
 .harn/
-.harn_config
+.claude/
+.idea/
 .DS_Store
 *.log
 web/node_modules/
@@ -11,3 +12,5 @@ web/*.config.*
 web/package*.json
 web/tsconfig*.json
 web/index.html
+IMPLEMENTATION_BRIEF.md
+PRD.md

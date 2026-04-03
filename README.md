@@ -1,48 +1,16 @@
 # harn
 
-**AI multi-agent sprint development loop orchestrator**
-
-Automates a **Planner → Generator → Evaluator** loop that takes a backlog item and drives it to completion through sprints.
+AI multi-agent sprint orchestrator. Takes a backlog item and drives it to completion through a **Planner → Generator → Evaluator** loop.
 
 ---
 
-## Requirements
-
-| Tool | Purpose |
-|------|---------|
-| `python3` | Backlog parsing, markdown rendering |
-| `copilot`, `claude`, `codex`, or `gemini` | AI agent execution (at least one required) |
-
----
-
-## Installation
-
-### via npm (recommended)
+## Install
 
 ```bash
 npm install -g @tyrannoapartment/harn
 ```
 
-After install, the version is printed automatically. You can also check anytime:
-
-```bash
-harn --version
-```
-
-### Manual (git clone)
-
-```bash
-git clone https://github.com/Tyrannoapartment/harn.git
-cd harn
-chmod +x harn.sh
-ln -s "$(pwd)/harn.sh" /usr/local/bin/harn
-```
-
-### Uninstall
-
-```bash
-npm uninstall -g @tyrannoapartment/harn
-```
+**Requirements:** `node` ≥ 18, `python3`, and one of: `copilot` · `claude` · `codex` · `gemini`
 
 ---
 
@@ -50,127 +18,88 @@ npm uninstall -g @tyrannoapartment/harn
 
 ```bash
 cd /path/to/your/project
+harn web        # opens dashboard at http://localhost:7111
+```
 
-# Check dependencies first (works even without config)
-harn doctor
+Or use the CLI directly:
 
-# First run launches the setup wizard automatically
-harn start
+```bash
+harn auto       # resume → start next → discover (smart entry point)
+harn start      # pick a backlog item and run the full loop
 ```
 
 ---
 
-## Commands
+## Web Dashboard
 
-### Setup
+`harn web` launches a local dashboard with four panels:
 
-| Command | Description |
-|---------|-------------|
-| `harn init` | Initial setup wizard (or re-run to reconfigure) |
-| `harn doctor` | Check dependencies and configuration |
-| `harn config` | Show current config |
-| `harn config set KEY VALUE` | Update a config value |
-| `harn config regen` | Regenerate custom prompts from HINT_* in config |
-| `harn --version` | Show installed version |
+| Panel | What it does |
+|-------|-------------|
+| **Backlog** | Manage Pending / In Progress / Done items, add new items with slug + description + plan |
+| **Console** | AI assistant chat — multi-tab, tab rename, AI logo + model badge per response |
+| **Runs** | Sprint history and status |
+| **Settings** | AI backend, per-role model selection, language, git |
 
-### Backlog & Execution
-
-| Command | Description |
-|---------|-------------|
-| `harn backlog` | Show pending backlog items |
-| `harn auto` | Resume if in-progress, start if pending, discover if empty |
-| `harn all` | Run all pending backlog items sequentially (1 sprint each) |
-| `harn start` | Select a backlog item, set sprint count, and run the full loop |
-| `harn discover` | Analyze codebase and suggest new backlog items |
-| `harn add` | Manually add a backlog item |
-
-### Step-by-step
-
-| Command | Description |
-|---------|-------------|
-| `harn plan` | Re-run planner for the current run |
-| `harn contract` | Sprint scope negotiation |
-| `harn implement` | Run generator |
-| `harn evaluate` | Run evaluator (auto-retries on FAIL) |
-| `harn next` | Advance to next sprint |
-
-### Monitoring
-
-| Command | Description |
-|---------|-------------|
-| `harn status` | Show current run state |
-| `harn tail` | Stream live log output |
-| `harn runs` | List all runs |
-| `harn resume <id>` | Resume a previous run |
-| `harn stop` | Stop the running loop |
+The console assistant understands natural language:
+```
+start the next backlog item
+add api-refactor to the backlog
+what's the current sprint status?
+```
 
 ---
 
-## Full Workflow
+## CLI Commands
 
+```bash
+harn web [--port 8080]   # web dashboard
+harn auto                # smart entry: resume → start → discover
+harn all                 # run all pending items sequentially
+harn start [slug]        # run a specific item
+harn add                 # add a backlog item
+harn discover            # analyze codebase and suggest items
+harn do "<request>"      # natural language command
+harn status              # current run state
+harn stop                # stop the running loop
+harn runs                # list run history
+harn doctor              # check dependencies
+harn config              # show / edit config
+harn memory              # show project memory
 ```
-harn start
-```
-
-```
-Select backlog item
-    │
-    ▼
-Prompt: "Number of sprints [1]:"
-    │  (harn auto / harn all always use 1 sprint)
-    │
-    ▼
-[Planner]  spec.md + sprint-backlog.md
-    │  Model: MODEL_PLANNER
-    │  Divides the task into N self-contained scopes (one per sprint)
-    │  Git (when GIT_ENABLED=true): commit backlog → In Progress
-    │
-    ▼  sprint loop ──────────────────────────────────────────────────────┐
-    │                                                                    │
-    │  ┌─ Scope negotiation (1 round) ──────────────────────────────┐    │
-    │  │  [Generator]  propose scope       MODEL_GENERATOR_CONTRACT │    │
-    │  │      ↓                                                     │    │
-    │  │  [Evaluator]  APPROVED → contract.md                       │    │
-    │  │               NEEDS_REVISION → Generator revises           │    │
-    │  └────────────────────────────────────────────────────────────┘    │
-    │                                                                    │
-    │  ┌─ Implement → Evaluate  (up to MAX_ITERATIONS) ─────────────┐    │
-    │  │  [Generator]  implement           MODEL_GENERATOR_IMPL     │    │
-    │  │      ↓   Git (when GIT_ENABLED=true): commit changes       │    │
-    │  │  [Evaluator]  lint / test / E2E                            │    │
-    │  │               VERDICT: PASS → next sprint                  │    │
-    │  │               VERDICT: FAIL → Generator retries            │    │
-    │  │                               (MODEL_GENERATOR_CONTRACT)   │    │
-    │  └────────────────────────────────────────────────────────────┘    │
-    └────────────────────────────────────────────────────────────────────┘
-    │
-    ▼  (last sprint passes)
-[Evaluator]  write handoff.md
-backlog item → Done
-    │  Git (when GIT_ENABLED=true): final commit
-    │
-    ▼
-[Evaluator]  retrospective + prompt improvement suggestions
-```
-
-> **QA FAIL retry model**: `MODEL_GENERATOR_CONTRACT` (sonnet) — iteration 1 uses `MODEL_GENERATOR_IMPL` (opus); retries use the lighter model.
-
-> **Sprint count**: defaults to 1. For multi-sprint runs, the Planner divides the task by feature area or logical component — not implementation vs. tests. Each sprint is independently buildable and testable.
 
 ---
 
-## Supported AI Backends
+## Sprint Loop
 
-harn auto-detects installed CLIs in this order: `copilot` → `claude` → `codex` → `gemini`.
+```
+[Planner]   spec.md + sprint-backlog.md
+     │
+     ▼  per sprint ──────────────────────────────────────────────────┐
+     │  [Generator]  propose scope                                   │
+     │  [Evaluator]  APPROVED / NEEDS_REVISION                       │
+     │       ↓                                                       │
+     │  [Generator]  implement                                       │
+     │  [Evaluator]  VERDICT: PASS → next sprint                     │
+     │               VERDICT: FAIL → retry (up to MAX_ITERATIONS)    │
+     └───────────────────────────────────────────────────────────────┘
+     │
+     ▼  last sprint passes
+[Evaluator]  handoff.md · backlog → Done · retrospective
+```
+
+---
+
+## AI Backends
+
+Auto-detected in order: `copilot` → `claude` → `codex` → `gemini`
 
 | CLI | Install |
 |-----|---------|
-| GitHub Copilot CLI (`copilot`) | `gh extension install github/gh-copilot` |
-| Anthropic Claude Code (`claude`) | `npm install -g @anthropic-ai/claude-code` |
-| OpenAI Codex CLI (`codex`) | `npm install -g @openai/codex` |
-| Google Gemini CLI (`gemini`) | `npm install -g @google/gemini-cli` |
-
-Override the backend per-run or in config:
+| GitHub Copilot | `gh extension install github/gh-copilot` |
+| Claude Code | `npm install -g @anthropic-ai/claude-code` |
+| OpenAI Codex | `npm install -g @openai/codex` |
+| Gemini | `npm install -g @google/gemini-cli` |
 
 ```bash
 harn config set AI_BACKEND claude
@@ -178,99 +107,58 @@ harn config set AI_BACKEND claude
 
 ---
 
-## AI Models (defaults)
+## Configuration
 
-| Role | Default model |
-|------|--------------|
-| Planner | `claude-haiku-4.5` |
-| Generator — scope | `claude-sonnet-4.6` |
-| Generator — implementation | `claude-opus-4.6` |
-| Evaluator — scope review | `claude-haiku-4.5` |
-| Evaluator — QA | `claude-sonnet-4.5` |
+Config lives at `.harn/config` in your project root. Created automatically on first run or via `harn init`.
 
-Override at runtime:
+```ini
+AI_BACKEND=copilot
 
-```bash
-HARN_MODEL_GENERATOR_IMPL=claude-sonnet-4.6 harn start
+COPILOT_MODEL_PLANNER=claude-haiku-4.5
+COPILOT_MODEL_GENERATOR_CONTRACT=claude-sonnet-4.6
+COPILOT_MODEL_GENERATOR_IMPL=claude-opus-4.6
+COPILOT_MODEL_EVALUATOR_CONTRACT=claude-haiku-4.5
+COPILOT_MODEL_EVALUATOR_QA=claude-sonnet-4.5
+
+MAX_ITERATIONS=5
+GIT_ENABLED=false
 ```
 
 ---
 
-## Configuration (.harn_config)
+## Backlog Format
 
-Auto-generated on first run or `harn init`. Sprint count is **not** stored here — it is asked each time you run `harn start`.
+Backlog is stored in `.harn/sprints/` as three files: `pending.md`, `in-progress.md`, `done.md`.
 
-```bash
-# .harn_config
-
-BACKLOG_FILE="docs/planner/sprint-backlog.md"
-MAX_ITERATIONS=5
-
-AI_BACKEND="copilot"
-
-MODEL_PLANNER="claude-haiku-4.5"
-MODEL_GENERATOR_CONTRACT="claude-sonnet-4.6"
-MODEL_GENERATOR_IMPL="claude-opus-4.6"
-MODEL_EVALUATOR_CONTRACT="claude-haiku-4.5"
-MODEL_EVALUATOR_QA="claude-sonnet-4.5"
-
-GIT_ENABLED="false"
+```markdown
+## Pending
+- [ ] **slug-no-spaces**
+  Short description of the feature
+  plan: one-line execution plan
 ```
 
-Update values:
-
-```bash
-harn config set MAX_ITERATIONS 3
-harn config set GIT_ENABLED true
-harn config set MODEL_GENERATOR_IMPL claude-sonnet-4.6
-
-# Configure test commands (auto-detected if not set)
-harn config set LINT_COMMAND "npm run lint"
-harn config set TEST_COMMAND "npm test"
-harn config set E2E_COMMAND "docker-compose up -d && sleep 5"
-```
+Add items via the web dashboard or `harn add`.
 
 ---
 
 ## Project Context
 
-Place a context file at `.harn/context.md` in your project. All agents read it automatically.
-
-```markdown
-## Project Overview
-...
-
-## Architecture
-...
-
-## Tech Stack
-...
-
-## Development Rules
-...
-```
+Create `.harn/context.md` — all agents read it automatically.
 
 ---
 
 ## Custom Prompts
 
-Place `planner.md`, `generator.md`, `evaluator.md` in `CUSTOM_PROMPTS_DIR` to override built-in prompts.
-
-```bash
-mkdir -p .harn/prompts
-cp ~/.local/share/harn/prompts/generator.md .harn/prompts/
-# edit, then:
-harn config set CUSTOM_PROMPTS_DIR ".harn/prompts"
-# or regenerate from HINT_* values in config:
-harn config regen
-```
+Place `planner.md`, `generator.md`, or `evaluator.md` in `.harn/prompts/` to override built-in prompts.  
+`harn init` can generate them from hints you provide.
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Fork from `develop`, PR targets `develop`.
 
 ## License
 
 [MIT](LICENSE)
+

@@ -18,6 +18,14 @@ export function currentRunId(harnDir) {
   return null;
 }
 
+/** Get active run directory path, or null. */
+export function currentRunDir(harnDir) {
+  const id = currentRunId(harnDir);
+  if (!id) return null;
+  const dir = join(harnDir, 'runs', id);
+  return existsSync(dir) ? dir : null;
+}
+
 /** Get current run directory or throw. */
 export function requireRunDir(harnDir) {
   const id = currentRunId(harnDir);

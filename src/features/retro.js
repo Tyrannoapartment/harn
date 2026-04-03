@@ -58,7 +58,7 @@ export async function cmdRetrospective({ runDir, harnDir, config, scriptDir, roo
     '(suggestions for evaluator prompt)',
   ].join('\n');
 
-  const output = await invokeRole({
+  const { output } = await invokeRole({
     role: 'retrospective',
     promptText,
     config,

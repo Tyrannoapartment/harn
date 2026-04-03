@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { printBanner, logWarn } from './core/logger.js';
-import { loadConfig, DEFAULTS } from './core/config.js';
+import { loadConfig, DEFAULTS, getSprintDir } from './core/config.js';
 import { setLang, t } from './core/i18n.js';
 import { setupErrorHandlers } from './core/error.js';
 import { checkForUpdates } from './features/update.js';
@@ -27,7 +27,7 @@ const VERSION = PKG.version;
 // Resolve project root (cwd or HARN_ROOT)
 const ROOT_DIR = process.env.HARN_ROOT || process.cwd();
 const HARN_DIR = join(ROOT_DIR, '.harn');
-const CONFIG_FILE = join(ROOT_DIR, '.harn_config');
+const CONFIG_FILE = join(HARN_DIR, 'config');
 
 setupErrorHandlers();
 
@@ -143,12 +143,19 @@ program
   .description('Show backlog')
   .action(async () => {
     const ctx = buildContext(program.opts());
-    const config = ctx.config;
-    const bl = config.BACKLOG_FILE;
-    if (existsSync(bl)) {
-      console.log(readFileSync(bl, 'utf-8'));
-    } else {
-      logWarn(`Backlog not found: ${bl}`);
+    const { readBacklog, ensureSprintDir } = await import('./backlog/backlog.js');
+    const sd = getSprintDir(ctx.rootDir);
+    ensureSprintDir(sd);
+    const bl = readBacklog(sd);
+    for (const section of ['pending', 'in_progress', 'done']) {
+      if (bl[section].length > 0) {
+        const label = section === 'in_progress' ? 'In Progress' : section.charAt(0).toUpperCase() + section.slice(1);
+        console.log(`\n## ${label}`);
+        for (const item of bl[section]) {
+          const mark = section === 'done' ? '✓' : section === 'in_progress' ? '▶' : '○';
+          console.log(`  ${mark}  ${item.slug}  ${item.description || ''}`);
+        }
+      }
     }
   });
 
@@ -196,12 +203,33 @@ program
       harnDir: HARN_DIR,
       rootDir: ROOT_DIR,
       configFile: CONFIG_FILE,
+      scriptDir: SCRIPT_DIR,
       openBrowser: opts.open !== false,
-      commandRunner: async (cmd, args) => {
-        // Delegate command execution
-        const module = await import('./features/auto.js');
-        const fn = module[`cmd${cmd.charAt(0).toUpperCase() + cmd.slice(1)}`];
-        if (fn) return fn({ ...ctx, ...args });
+      commandRunner: async (cmd, args, { onLog, onData, sse } = {}) => {
+        const auto = await import('./features/auto.js');
+        const commands = await import('./run/commands.js');
+        const ctxNow = { ...buildContext(program.opts()), onLog, onData, sse };
+
+        const commandMap = {
+          auto: () => auto.cmdAuto(ctxNow),
+          all: () => auto.cmdAll(ctxNow),
+          start: () => auto.cmdStart({ ...ctxNow, slug: args?.[0] }),
+          resume: () => auto.cmdResume(ctxNow),
+          stop: () => commands.cmdStop(ctxNow.harnDir),
+          status: () => auto.cmdStatus(ctxNow),
+          backlog: () => commands.cmdBacklog(ctxNow),
+          discover: async () => {
+            const { cmdDiscover } = await import('./features/discover.js');
+            return cmdDiscover(ctxNow);
+          },
+          add: async () => {
+            const { cmdAdd } = await import('./features/discover.js');
+            return cmdAdd(ctxNow);
+          },
+        };
+
+        const fn = commandMap[cmd];
+        if (fn) return fn();
         throw new Error(`Unknown command: ${cmd}`);
       },
     });
@@ -268,7 +296,7 @@ program.action(async () => {
 
   // Quick AI tool check
   const { execSync } = await import('node:child_process');
-  const tools = ['copilot', 'claude', 'codex'];
+  const tools = ['copilot', 'claude', 'codex', 'gemini'];
   console.log('  Checking AI tools...\n');
   for (const tool of tools) {
     try {
@@ -293,11 +321,33 @@ program.action(async () => {
     harnDir: HARN_DIR,
     rootDir: ROOT_DIR,
     configFile: CONFIG_FILE,
+    scriptDir: SCRIPT_DIR,
     openBrowser: true,
-    commandRunner: async (cmd, args) => {
-      const module = await import('./features/auto.js');
-      const fn = module[`cmd${cmd.charAt(0).toUpperCase() + cmd.slice(1)}`];
-      if (fn) return fn({ ...ctx, ...args });
+    commandRunner: async (cmd, args, { onLog, onData, sse } = {}) => {
+      const auto = await import('./features/auto.js');
+      const commands = await import('./run/commands.js');
+      const ctxNow = { ...buildContext(program.opts()), onLog, onData, sse };
+
+      const commandMap = {
+        auto: () => auto.cmdAuto(ctxNow),
+        all: () => auto.cmdAll(ctxNow),
+        start: () => auto.cmdStart({ ...ctxNow, slug: args?.[0] }),
+        resume: () => auto.cmdResume(ctxNow),
+        stop: () => commands.cmdStop(ctxNow.harnDir),
+        status: () => auto.cmdStatus(ctxNow),
+        backlog: () => commands.cmdBacklog(ctxNow),
+        discover: async () => {
+          const { cmdDiscover } = await import('./features/discover.js');
+          return cmdDiscover(ctxNow);
+        },
+        add: async () => {
+          const { cmdAdd } = await import('./features/discover.js');
+          return cmdAdd(ctxNow);
+        },
+      };
+
+      const fn = commandMap[cmd];
+      if (fn) return fn();
       throw new Error(`Unknown command: ${cmd}`);
     },
   });

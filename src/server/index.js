@@ -13,9 +13,17 @@ import { logOk, logInfo } from '../core/logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export async function startServer({ port = 7111, harnDir, rootDir, configFile, commandRunner, openBrowser = true }) {
+export async function startServer({ port = 7111, harnDir, rootDir, configFile, scriptDir, commandRunner, openBrowser = true }) {
   const app = express();
   const sse = createSSEManager();
+
+  // Wrap commandRunner to inject SSE broadcast as onLog + sse
+  const wrappedCommandRunner = async (cmd, args) => {
+    const onLog = (text) => sse.broadcastLog(text);
+    const onData = (chunk) => sse.broadcastAIChunk(chunk);
+    const onResult = (text, meta) => sse.broadcastResult(text, meta);
+    return commandRunner(cmd, args, { onLog, onData, onResult, sse });
+  };
 
   app.use(express.json());
 
@@ -28,7 +36,7 @@ export async function startServer({ port = 7111, harnDir, rootDir, configFile, c
   });
 
   // API routes
-  const apiRouter = createApiRouter({ harnDir, rootDir, configFile, sse, commandRunner });
+  const apiRouter = createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, commandRunner: wrappedCommandRunner });
   app.use('/api', apiRouter);
 
   // Serve web frontend (production build)

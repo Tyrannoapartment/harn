@@ -151,18 +151,22 @@ export function fallbackModelsAfter(backend, currentModel, harnDir) {
 }
 
 /**
- * Discover models for a backend using its CLI (claude/gemini only).
+ * Discover models for a backend using its CLI.
  * Returns array of model names or null on failure. Timeout: 5 seconds.
  * @param {string} backend
  * @returns {Promise<string[]|null>}
  */
 function discoverModels(backend) {
   const commands = {
+    copilot: [['copilot', 'models']],
     claude: [['claude', 'models']],
+    codex: [['codex', 'models'], ['codex', '--list-models']],
     gemini: [['gemini', 'models', 'list'], ['gemini', 'list-models']],
   };
   const patterns = {
+    copilot: /(?:claude-[A-Za-z0-9.\-]+|gpt-[A-Za-z0-9.\-]+|o[13]-[A-Za-z0-9.\-]+|o[13]\b)/g,
     claude: /claude-[A-Za-z0-9.\-]+/g,
+    codex: /(?:gpt-[A-Za-z0-9.\-]+|o[13]-[A-Za-z0-9.\-]+)/g,
     gemini: /gemini-[A-Za-z0-9.\-]+/g,
   };
 
@@ -212,13 +216,90 @@ export async function refreshModelCache(harnDir) {
   writeFileSync(join(cacheDir, 'backends.txt'), installed.join('\n') + '\n', 'utf8');
 
   for (const backend of installed) {
-    let models = null;
-    if (backend === 'claude' || backend === 'gemini') {
-      models = await discoverModels(backend);
-    }
+    const models = await discoverModels(backend);
     const list = (models && models.length > 0) ? models : getFallbackModels(backend);
     writeCacheLines(modelCacheFile(harnDir, backend), list);
   }
+}
+
+/**
+ * Return list of installed (available) backends.
+ */
+export function getInstalledBackends(harnDir) {
+  const cacheFile = join(modelCacheDir(harnDir), 'backends.txt');
+  try {
+    return readFileSync(cacheFile, 'utf8').trim().split('\n').filter(Boolean);
+  } catch {
+    return BACKEND_PREFERENCE.filter(b => which(b));
+  }
+}
+
+/**
+ * Check the health status of all known AI backends.
+ * Returns info about each: installed, version, auth status.
+ * @param {string} harnDir
+ * @returns {{ backend: string, installed: boolean, version: string, authenticated: boolean }[]}
+ */
+export function checkBackendHealth(harnDir) {
+  const results = [];
+  for (const backend of BACKEND_PREFERENCE) {
+    const path = which(backend);
+    const installed = !!path;
+    let version = '';
+    let authenticated = false;
+
+    if (installed) {
+      // Try to get version
+      try {
+        const raw = execFileSync(backend, ['--version'], {
+          encoding: 'utf-8', timeout: 5000, env: CLEAN_ENV,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim().split('\n')[0];
+        version = raw || 'unknown';
+      } catch {
+        version = 'unknown';
+      }
+
+      // Quick auth check — different per backend
+      try {
+        if (backend === 'copilot') {
+          // copilot: check if `gh auth status` or `copilot --version` works
+          authenticated = true; // if we got version, it's likely ok
+        } else if (backend === 'claude') {
+          // claude: check if API key is set
+          authenticated = !!(process.env.ANTHROPIC_API_KEY || version);
+        } else if (backend === 'codex') {
+          authenticated = !!(process.env.OPENAI_API_KEY || version);
+        } else if (backend === 'gemini') {
+          authenticated = !!(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || version);
+        }
+      } catch {
+        authenticated = false;
+      }
+    }
+
+    results.push({ backend, installed, version, authenticated });
+  }
+  return results;
+}
+
+/**
+ * Return models for ALL installed backends grouped by backend name.
+ * @returns {{ [backend: string]: string[] }}
+ */
+export function getAllBackendModels(harnDir) {
+  const backends = getInstalledBackends(harnDir);
+  const result = {};
+  for (const b of backends) {
+    result[b] = getModelsForBackend(b, harnDir);
+  }
+  // Also include any backends not installed but with fallback models
+  for (const b of BACKEND_PREFERENCE) {
+    if (!result[b]) {
+      result[b] = getFallbackModels(b);
+    }
+  }
+  return result;
 }
 
 /**

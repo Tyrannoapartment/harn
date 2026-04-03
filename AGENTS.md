@@ -67,9 +67,22 @@ All state for a run lives under `.harn/` in the **target project directory** (no
 .harn/
   harn.log               # global log
   harn.pid               # PID while _run_sprint_loop is active
+  settings.json          # setting values
   current -> runs/<id>   # symlink to active run
   current.log            # symlink to active run log
-  prompts/               # custom prompts (override built-in prompts/)
+  model-cache/           # cached model tier decisions for prompts
+    claude.txt           # cached model list of claude cli
+    copilot.txt          # cached model list of copilot cli
+    codex.txt            # cached model list of codex cli
+    gemini.txt           # cached model list of gemini cli
+  prompts/               # generated prompts (override built-in prompts/)
+  sprint/
+    pending/             # one .md file per pending backlog item
+      <slug>.md
+    in-progress/         # items currently being worked on
+      <slug>.md
+    done/                # completed items
+      <slug>.md
   runs/<YYYYMMDD-HHMMSS>/
     prompt.txt           # selected backlog slug
     plan.txt             # one-line plan text
@@ -83,15 +96,15 @@ All state for a run lives under `.harn/` in the **target project directory** (no
         qa-report.md      # evaluator verdict
         status            # pending|in-progress|pass|fail|cancelled
         iteration         # retry count
-    handoff.md           # completion summary (written by evaluator on final PASS)
-    run.log              # execution log for this run
+    handoff.md            # completion summary (written by evaluator on final PASS)
+    run.log               # execution log for this run
 ```
 
 ### Sprint loop flow
 
 ```
 cmd_start
-  └─ cmd_plan (Planner: backlog item → spec.md + sprint-backlog.md)
+  └─ cmd_plan (Planner: backlog item → spec.md + )
       └─ _run_sprint_loop
           ├─ cmd_contract (Generator proposes scope → Evaluator approves/revises)
           ├─ cmd_implement (Generator implements; retries up to MAX_ITERATIONS on FAIL)
@@ -123,17 +136,42 @@ UI output language is auto-detected via `_detect_lang()` (Korean/English). All a
 
 ### Backlog format
 
-```markdown
-## Pending
-- [ ] **slug-with-no-spaces**
-  description text
-  plan: one-line plan after planning
+Each backlog item is a standalone markdown file stored in `.harn/sprint/<status>/<slug>.md`:
 
-## In Progress
-## Done
+```
+.harn/sprint/pending/feature-auth.md
+.harn/sprint/in-progress/api-refactor.md
+.harn/sprint/done/fix-login-bug.md
 ```
 
-Slugs must have no spaces — they're used as programmatic identifiers.
+File format (Jira-style ticket):
+
+```markdown
+# slug-name
+
+## Summary
+One-line summary of this ticket.
+
+## Description
+Detailed description of the backlog item.
+Can be multi-line with full markdown.
+
+## Affected Files
+- src/path/to/file.ts
+- web/src/components/Component.tsx
+
+## Implementation Guide
+Step-by-step implementation approach.
+
+## Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Plan
+Planner-written plan (appended by the planner agent after planning).
+```
+
+Slugs must have no spaces — they're used as file names and programmatic identifiers. Moving items between states is done by moving the file between directories.
 
 ### Model configuration priority
 

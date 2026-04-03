@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import chalk from 'chalk';
 import { logStep } from '../core/logger.js';
 import { t } from '../core/i18n.js';
+import { getSprintDir } from '../core/config.js';
 
 function checkCli(name) {
   try {
@@ -44,15 +45,15 @@ export function cmdDoctor({ harnDir, rootDir, config }) {
   }
 
   // Config
-  const configFile = join(rootDir, '.harn_config');
+  const configFile = join(rootDir, '.harn', 'config');
   const hasConfig = existsSync(configFile);
-  console.log(`  ${hasConfig ? chalk.green('✓') : chalk.yellow('?')}  .harn_config ${hasConfig ? '' : chalk.yellow('(missing)')}`);
+  console.log(`  ${hasConfig ? chalk.green('✓') : chalk.yellow('?')}  .harn/config ${hasConfig ? '' : chalk.yellow('(missing)')}`);
 
   // Backlog
   if (config) {
-    const blPath = config.BACKLOG_FILE || join(rootDir, 'sprint-backlog.md');
-    const hasBacklog = existsSync(blPath);
-    console.log(`  ${hasBacklog ? chalk.green('✓') : chalk.yellow('?')}  backlog ${hasBacklog ? chalk.dim(blPath) : chalk.yellow('(missing)')}`);
+    const sd = getSprintDir(rootDir);
+    const hasBacklog = existsSync(join(sd, 'pending'));
+    console.log(`  ${hasBacklog ? chalk.green('✓') : chalk.yellow('?')}  sprint dir ${hasBacklog ? chalk.dim(sd) : chalk.yellow('(missing)')}`);
   }
 
   // Git branch

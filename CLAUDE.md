@@ -123,17 +123,42 @@ UI output language is auto-detected via `_detect_lang()` (Korean/English). All a
 
 ### Backlog format
 
-```markdown
-## Pending
-- [ ] **slug-with-no-spaces**
-  description text
-  plan: one-line plan after planning
+Each backlog item is a standalone markdown file stored in `.harn/sprint/<status>/<slug>.md`:
 
-## In Progress
-## Done
+```
+.harn/sprint/pending/feature-auth.md
+.harn/sprint/in-progress/api-refactor.md
+.harn/sprint/done/fix-login-bug.md
 ```
 
-Slugs must have no spaces — they're used as programmatic identifiers.
+File format (Jira-style ticket):
+
+```markdown
+# slug-name
+
+## Summary
+One-line summary of this ticket.
+
+## Description
+Detailed description of the backlog item.
+Can be multi-line with full markdown.
+
+## Affected Files
+- src/path/to/file.ts
+- web/src/components/Component.tsx
+
+## Implementation Guide
+Step-by-step implementation approach.
+
+## Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Plan
+Planner-written plan (appended by the planner agent after planning).
+```
+
+Slugs must have no spaces — they're used as file names and programmatic identifiers. Moving items between states is done by moving the file between directories.
 
 ### Model configuration priority
 

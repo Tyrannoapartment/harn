@@ -5,16 +5,18 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { aiGenerate } from '../ai/backend.js';
-import { pendingSlugs, addItem } from '../backlog/backlog.js';
+import { pendingSlugs, addItem, ensureSprintDir } from '../backlog/backlog.js';
 import { logStep, logOk, logInfo } from '../core/logger.js';
 import { t } from '../core/i18n.js';
+import { getSprintDir } from '../core/config.js';
 
 /** Discover new backlog items by analyzing the codebase with AI. */
 export async function cmdDiscover({ config, harnDir, scriptDir, rootDir, onLog }) {
   logStep(t('DISCOVER_START'));
 
-  const backlogPath = config.BACKLOG_FILE;
-  const existing = existsSync(backlogPath) ? pendingSlugs(backlogPath) : [];
+  const sd = getSprintDir(rootDir);
+  ensureSprintDir(sd);
+  const existing = pendingSlugs(sd);
 
   const prompt = [
     'You are analyzing a software project to discover work items.',
@@ -28,12 +30,13 @@ export async function cmdDiscover({ config, harnDir, scriptDir, rootDir, onLog }
     'Rules: slug must be hyphenated-lowercase (max 50 chars). Do NOT duplicate existing slugs.',
   ].join('\n');
 
-  const output = await aiGenerate({
+  const result = await aiGenerate({
     prompt,
     backend: config.AI_BACKEND,
     model: config.MODEL_AUXILIARY || config.COPILOT_MODEL_PLANNER,
     cwd: rootDir,
   });
+  const output = result?.output || '';
 
   // Parse new items
   const marker = '=== new-items ===';
@@ -57,7 +60,7 @@ export async function cmdDiscover({ config, harnDir, scriptDir, rootDir, onLog }
 
   // Add to backlog
   for (const item of items) {
-    addItem(backlogPath, item.slug, item.description);
+    addItem(sd, item.slug, item.description);
     logOk(`Added: ${item.slug}`);
   }
 
@@ -82,12 +85,13 @@ export async function cmdAdd({ config, harnDir, scriptDir, rootDir }) {
     '\nRules: slug must be kebab-case, max 50 chars, no spaces.',
   ].join('\n');
 
-  const output = await aiGenerate({
+  const addResult = await aiGenerate({
     prompt,
     backend: config.AI_BACKEND,
     model: config.MODEL_AUXILIARY || config.COPILOT_MODEL_PLANNER,
     cwd: rootDir,
   });
+  const output = addResult?.output || '';
 
   // Parse JSON
   const jsonMatch = output.match(/\[[\s\S]*?\]/);
@@ -116,9 +120,10 @@ export async function cmdAdd({ config, harnDir, scriptDir, rootDir }) {
 
   if (!confirm) return;
 
-  const backlogPath = config.BACKLOG_FILE;
+  const sd = getSprintDir(rootDir);
+  ensureSprintDir(sd);
   for (const item of items) {
-    addItem(backlogPath, item.slug, item.description);
+    addItem(sd, item.slug, item.description);
     logOk(`Added: ${item.slug}`);
   }
 }

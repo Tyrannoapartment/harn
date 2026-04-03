@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 export const DEFAULTS = {
-  BACKLOG_FILE: 'sprint-backlog.md',
+  SPRINT_DIR: '',   // resolved at runtime to <harnDir>/sprint
   MAX_ITERATIONS: '5',
   GIT_ENABLED: 'false',
   SPRINT_COUNT: '1',
@@ -30,12 +30,12 @@ export const DEFAULTS = {
   TEST_COMMAND: '',
   E2E_COMMAND: '',
   HARN_LANG: '',
-  CUSTOM_PROMPTS_DIR: '',
 };
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 export const getHarnDir    = (rootDir) => join(rootDir, '.harn');
-export const getConfigPath = (rootDir) => join(rootDir, '.harn_config');
+export const getConfigPath = (rootDir) => join(rootDir, '.harn', 'config');
+export const getSprintDir  = (rootDir) => join(rootDir, '.harn', 'sprint');
 
 // ── Load config ───────────────────────────────────────────────────────────────
 export function loadConfig(configFile) {
@@ -91,13 +91,20 @@ export function migrateOldDirs(rootDir) {
   const harnDir = getHarnDir(rootDir);
   const oldDir = join(rootDir, '.harness');
   const oldCfg = join(rootDir, '.harness_config');
+  const oldHarnCfg = join(rootDir, '.harn_config');
   const newCfg = getConfigPath(rootDir);
 
   if (!existsSync(harnDir) && existsSync(oldDir)) {
     try { renameSync(oldDir, harnDir); } catch { /* ignore */ }
   }
-  if (!existsSync(newCfg) && existsSync(oldCfg)) {
-    try { renameSync(oldCfg, newCfg); } catch { /* ignore */ }
+  // Ensure .harn exists before migrating config into it
+  ensureHarnDir(harnDir);
+  if (!existsSync(newCfg)) {
+    if (existsSync(oldHarnCfg)) {
+      try { renameSync(oldHarnCfg, newCfg); } catch { /* ignore */ }
+    } else if (existsSync(oldCfg)) {
+      try { renameSync(oldCfg, newCfg); } catch { /* ignore */ }
+    }
   }
 }
 

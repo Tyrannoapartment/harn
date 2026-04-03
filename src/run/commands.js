@@ -6,8 +6,8 @@
 import { readFileSync, writeFileSync, existsSync, rmSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
-import { invokeRole } from '../ai/invoke.js';
-import { readBacklog, pendingSlugs, itemText, moveItemSection, upsertPlanLine } from '../backlog/backlog.js';
+import { invokeRole, invokeWithStreaming } from '../ai/invoke.js';
+import { readBacklog, pendingSlugs, itemText, moveItemSection, upsertPlanLine, ensureSprintDir } from '../backlog/backlog.js';
 import {
   createRun, syncRunLog, currentSprintNum, sprintDir,
   sprintStatus, setSprintStatus, sprintIteration, setSprintIteration,
@@ -15,6 +15,23 @@ import {
 } from './run.js';
 import { logInfo, logOk, logWarn, logErr, logStep, stripAnsi } from '../core/logger.js';
 import { t } from '../core/i18n.js';
+import { getSprintDir } from '../core/config.js';
+
+// ── Prompt resolution ─────────────────────────────────────────────────────────
+
+/**
+ * Load a prompt template file, checking .harn/prompts/ (custom) first,
+ * then the built-in prompts/ directory.
+ */
+function loadPrompt(role, harnDir, scriptDir) {
+  if (harnDir) {
+    const custom = join(harnDir, 'prompts', `${role}.md`);
+    if (existsSync(custom)) return readFileSync(custom, 'utf-8');
+  }
+  const builtin = join(scriptDir, 'prompts', `${role}.md`);
+  if (existsSync(builtin)) return readFileSync(builtin, 'utf-8');
+  return '';
+}
 
 // ── Section parser ────────────────────────────────────────────────────────────
 function extractSection(output, sectionName) {
@@ -28,14 +45,24 @@ function extractSection(output, sectionName) {
   return output.slice(start, end).trim();
 }
 
-// ── cmd: backlog ──────────────────────────────────────────────────────────────
-export function cmdBacklog(config) {
-  const backlogPath = config.BACKLOG_FILE;
-  if (!existsSync(backlogPath)) {
-    logWarn(t('ERR_NO_BACKLOG'));
-    return;
+/**
+ * Invoke an agent role with optional real-time streaming.
+ * When `onData` callback is provided, uses invokeWithStreaming for real-time output.
+ * Otherwise falls back to non-streaming invokeRole.
+ */
+async function invokeRoleStreaming(params) {
+  const { onData, ...roleParams } = params;
+  if (onData && typeof onData === 'function') {
+    return invokeWithStreaming({ ...roleParams, onData });
   }
-  const data = readBacklog(backlogPath);
+  return invokeRole(roleParams);
+}
+
+// ── cmd: backlog ──────────────────────────────────────────────────────────────
+export function cmdBacklog({ config, rootDir }) {
+  const sd = getSprintDir(rootDir);
+  ensureSprintDir(sd);
+  const data = readBacklog(sd);
   logStep(t('BACKLOG_PENDING'));
   if (data.pending.length === 0 && data.in_progress.length === 0) {
     logInfo(t('BACKLOG_EMPTY'));
@@ -48,13 +75,13 @@ export function cmdBacklog(config) {
 }
 
 // ── cmd: start ────────────────────────────────────────────────────────────────
-export async function cmdStart({ slug, config, harnDir, scriptDir, onLog }) {
-  const backlogPath = config.BACKLOG_FILE;
-  if (!existsSync(backlogPath)) throw new Error(t('ERR_NO_BACKLOG'));
+export async function cmdStart({ slug, config, harnDir, rootDir, scriptDir, onLog, onData, onResult }) {
+  const sd = getSprintDir(rootDir);
+  ensureSprintDir(sd);
 
   // Pick slug
   if (!slug) {
-    const slugs = pendingSlugs(backlogPath);
+    const slugs = pendingSlugs(sd);
     if (slugs.length === 0) throw new Error(t('BACKLOG_EMPTY'));
     slug = slugs[0];
   }
@@ -67,31 +94,24 @@ export async function cmdStart({ slug, config, harnDir, scriptDir, onLog }) {
   writeFileSync(join(runDir, 'prompt.txt'), slug);
 
   // Move to In Progress
-  moveItemSection(backlogPath, slug, 'Pending', 'In Progress');
+  moveItemSection(sd, slug, 'Pending', 'In Progress');
 
   // Plan
-  await cmdPlan({ slug, runDir, config, harnDir, scriptDir, onLog, logFile });
+  await cmdPlan({ slug, runDir, config, harnDir, rootDir, scriptDir, onLog, onData, onResult, logFile });
 
   return { runDir, id, slug };
 }
 
 // ── cmd: plan ─────────────────────────────────────────────────────────────────
-export async function cmdPlan({ slug, runDir, config, harnDir, scriptDir, onLog, logFile }) {
+export async function cmdPlan({ slug, runDir, config, harnDir, rootDir, scriptDir, onLog, onData, onResult, logFile }) {
   logStep(t('PLAN_START'));
-  const backlogPath = config.BACKLOG_FILE;
+  const sd = getSprintDir(rootDir);
   const item = slug || readFileSync(join(runDir, 'prompt.txt'), 'utf-8').trim();
-  const itemDesc = itemText(backlogPath, item);
+  const itemDesc = itemText(sd, item);
   const sprintCount = config.SPRINT_COUNT || '1';
 
   // Read planner prompt template
-  const lang = config.HARN_LANG || 'en';
-  let promptsDir = join(scriptDir, 'prompts', lang);
-  if (config.CUSTOM_PROMPTS_DIR && existsSync(join(config.CUSTOM_PROMPTS_DIR, 'planner.md'))) {
-    promptsDir = config.CUSTOM_PROMPTS_DIR;
-  }
-  const plannerTemplate = existsSync(join(promptsDir, 'planner.md'))
-    ? readFileSync(join(promptsDir, 'planner.md'), 'utf-8')
-    : '';
+  const plannerTemplate = loadPrompt('planner', harnDir, scriptDir);
 
   const prompt = [
     plannerTemplate,
@@ -100,9 +120,9 @@ export async function cmdPlan({ slug, runDir, config, harnDir, scriptDir, onLog,
     '\n\nOutput your result using the exact section markers:\n=== plan.text ===\n=== spec.md ===\n=== sprint-backlog.md ===',
   ].join('');
 
-  const output = await invokeRole({
+  const { output, backend, model } = await invokeRoleStreaming({
     role: 'planner', roleDetail: 'planner',
-    prompt, runDir, harnDir, scriptDir, config, onLog,
+    prompt, runDir, harnDir, scriptDir, config, onLog, onData,
   });
 
   // Parse sections
@@ -115,19 +135,24 @@ export async function cmdPlan({ slug, runDir, config, harnDir, scriptDir, onLog,
   writeFileSync(join(runDir, 'sprint-backlog.md'), sprintBacklog);
 
   // Update plan line in backlog
-  if (planText) upsertPlanLine(config.BACKLOG_FILE, item, planText);
+  if (planText) upsertPlanLine(sd, item, planText);
 
   // Set sprint count
   const numSprints = countSprintsInBacklog(sprintBacklog) || 1;
   writeFileSync(join(runDir, 'sprint_count'), String(numSprints));
   setCurrentSprintNum(runDir, 1);
 
+  // Broadcast result report
+  if (onResult) {
+    onResult(specMd || output, { phase: 'plan', role: 'planner', backend, model });
+  }
+
   logOk(t('PLAN_DONE'));
   return { planText, specMd, sprintBacklog };
 }
 
 // ── cmd: contract ─────────────────────────────────────────────────────────────
-export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDir, onLog }) {
+export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDir, onLog, onData, onResult }) {
   logStep(t('CONTRACT_START'));
   const sDir = sprintDir(runDir, sprintNum);
 
@@ -137,12 +162,7 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
     ? readFileSync(join(runDir, 'sprint-backlog.md'), 'utf-8') : '';
 
   // Generator proposes contract
-  const lang = config.HARN_LANG || 'en';
-  let promptsDir = join(scriptDir, 'prompts', lang);
-  if (config.CUSTOM_PROMPTS_DIR) promptsDir = config.CUSTOM_PROMPTS_DIR;
-
-  const genTemplate = existsSync(join(promptsDir, 'generator.md'))
-    ? readFileSync(join(promptsDir, 'generator.md'), 'utf-8') : '';
+  const genTemplate = loadPrompt('generator', harnDir, scriptDir);
 
   const genPrompt = [
     genTemplate,
@@ -151,14 +171,19 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
     `\n\nYou are working on Sprint ${sprintNum}. Propose a contract (scope definition) for this sprint.`,
   ].join('');
 
-  let contractContent = await invokeRole({
+  const genResult = await invokeRoleStreaming({
     role: 'generator', roleDetail: 'generator_contract',
-    prompt: genPrompt, runDir, harnDir, scriptDir, config, onLog,
+    prompt: genPrompt, runDir, harnDir, scriptDir, config, onLog, onData,
   });
+  let contractContent = genResult.output;
+
+  // Broadcast generator's contract proposal
+  if (onResult) {
+    onResult(contractContent, { phase: 'contract', role: 'generator', backend: genResult.backend, model: genResult.model });
+  }
 
   // Evaluator reviews contract
-  const evalTemplate = existsSync(join(promptsDir, 'evaluator.md'))
-    ? readFileSync(join(promptsDir, 'evaluator.md'), 'utf-8') : '';
+  const evalTemplate = loadPrompt('evaluator', harnDir, scriptDir);
 
   for (let round = 0; round < 3; round++) {
     const evalPrompt = [
@@ -168,10 +193,16 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
       '\n\nReview this contract. Respond with APPROVED or NEEDS_REVISION on its own line.',
     ].join('');
 
-    const evalOutput = await invokeRole({
+    const evalResult = await invokeRoleStreaming({
       role: 'evaluator', roleDetail: 'evaluator_contract',
-      prompt: evalPrompt, runDir, harnDir, scriptDir, config, onLog,
+      prompt: evalPrompt, runDir, harnDir, scriptDir, config, onLog, onData,
     });
+    const evalOutput = evalResult.output;
+
+    // Broadcast evaluator's review
+    if (onResult) {
+      onResult(evalOutput, { phase: 'contract-review', role: 'evaluator', backend: evalResult.backend, model: evalResult.model });
+    }
 
     if (/APPROVED/i.test(evalOutput)) {
       logOk(t('CONTRACT_APPROVED'));
@@ -179,11 +210,15 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
     }
     logWarn(t('CONTRACT_REVISION'));
     if (round < 2) {
-      contractContent = await invokeRole({
+      const revResult = await invokeRoleStreaming({
         role: 'generator', roleDetail: 'generator_contract',
         prompt: genPrompt + `\n\n## Revision Feedback\n\n${evalOutput}`,
-        runDir, harnDir, scriptDir, config, onLog,
+        runDir, harnDir, scriptDir, config, onLog, onData,
       });
+      contractContent = revResult.output;
+      if (onResult) {
+        onResult(contractContent, { phase: 'contract-revision', role: 'generator', backend: revResult.backend, model: revResult.model });
+      }
     }
   }
 
@@ -193,7 +228,7 @@ export async function cmdContract({ runDir, sprintNum, config, harnDir, scriptDi
 }
 
 // ── cmd: implement ────────────────────────────────────────────────────────────
-export async function cmdImplement({ runDir, sprintNum, config, harnDir, scriptDir, onLog }) {
+export async function cmdImplement({ runDir, sprintNum, config, harnDir, scriptDir, onLog, onData, onResult }) {
   logStep(t('IMPL_START'));
   const sDir = sprintDir(runDir, sprintNum);
 
@@ -207,11 +242,7 @@ export async function cmdImplement({ runDir, sprintNum, config, harnDir, scriptD
   setSprintIteration(runDir, sprintNum, iter);
 
   const lang = config.HARN_LANG || 'en';
-  let promptsDir = join(scriptDir, 'prompts', lang);
-  if (config.CUSTOM_PROMPTS_DIR) promptsDir = config.CUSTOM_PROMPTS_DIR;
-
-  const genTemplate = existsSync(join(promptsDir, 'generator.md'))
-    ? readFileSync(join(promptsDir, 'generator.md'), 'utf-8') : '';
+  const genTemplate = loadPrompt('generator', harnDir, scriptDir);
 
   // Include previous QA report if retrying
   let qaContext = '';
@@ -228,18 +259,24 @@ export async function cmdImplement({ runDir, sprintNum, config, harnDir, scriptD
     `\n\nImplement all features defined in the sprint contract. This is iteration ${iter}.`,
   ].join('');
 
-  const output = await invokeRole({
+  const { output, backend, model } = await invokeRoleStreaming({
     role: 'generator', roleDetail: 'generator_impl',
-    prompt, runDir, harnDir, scriptDir, config, onLog,
+    prompt, runDir, harnDir, scriptDir, config, onLog, onData,
   });
 
   writeFileSync(join(sDir, 'implementation.md'), output);
+
+  // Broadcast result report
+  if (onResult) {
+    onResult(output, { phase: 'implement', role: 'generator', backend, model, iteration: iter });
+  }
+
   logOk(t('IMPL_DONE'));
   return output;
 }
 
 // ── cmd: evaluate ─────────────────────────────────────────────────────────────
-export async function cmdEvaluate({ runDir, sprintNum, config, harnDir, scriptDir, rootDir, onLog }) {
+export async function cmdEvaluate({ runDir, sprintNum, config, harnDir, scriptDir, rootDir, onLog, onData, onResult }) {
   logStep(t('EVAL_START'));
   const sDir = sprintDir(runDir, sprintNum);
 
@@ -262,11 +299,7 @@ export async function cmdEvaluate({ runDir, sprintNum, config, harnDir, scriptDi
   }
 
   const lang = config.HARN_LANG || 'en';
-  let promptsDir = join(scriptDir, 'prompts', lang);
-  if (config.CUSTOM_PROMPTS_DIR) promptsDir = config.CUSTOM_PROMPTS_DIR;
-
-  const evalTemplate = existsSync(join(promptsDir, 'evaluator.md'))
-    ? readFileSync(join(promptsDir, 'evaluator.md'), 'utf-8') : '';
+  const evalTemplate = loadPrompt('evaluator', harnDir, scriptDir);
 
   const prompt = [
     evalTemplate,
@@ -276,9 +309,9 @@ export async function cmdEvaluate({ runDir, sprintNum, config, harnDir, scriptDi
     '\n\nEvaluate the implementation. End with exactly VERDICT: PASS or VERDICT: FAIL on its own line.',
   ].join('');
 
-  const output = await invokeRole({
+  const { output, backend, model } = await invokeRoleStreaming({
     role: 'evaluator', roleDetail: 'evaluator_qa',
-    prompt, runDir, harnDir, scriptDir, config, onLog,
+    prompt, runDir, harnDir, scriptDir, config, onLog, onData,
   });
 
   writeFileSync(join(sDir, 'qa-report.md'), output);
@@ -301,6 +334,12 @@ export async function cmdEvaluate({ runDir, sprintNum, config, harnDir, scriptDi
   }
 
   setSprintStatus(runDir, sprintNum, verdict);
+
+  // Broadcast result report
+  if (onResult) {
+    onResult(output, { phase: 'evaluate', role: 'evaluator', backend, model, verdict });
+  }
+
   if (verdict === 'pass') {
     logOk(t('EVAL_PASS'));
   } else {
@@ -322,7 +361,7 @@ export async function cmdNext({ runDir, sprintNum, config, harnDir, scriptDir, r
     writeFileSync(join(runDir, 'completed'), 'true');
     const slug = existsSync(join(runDir, 'prompt.txt'))
       ? readFileSync(join(runDir, 'prompt.txt'), 'utf-8').trim() : '';
-    if (slug) moveItemSection(config.BACKLOG_FILE, slug, 'In Progress', 'Done');
+    if (slug) moveItemSection(getSprintDir(rootDir), slug, 'In Progress', 'Done');
 
     // Write handoff
     const handoff = `# Run Complete\n\nSlug: ${slug}\nSprints: ${total}\nCompleted: ${new Date().toISOString()}\n`;
