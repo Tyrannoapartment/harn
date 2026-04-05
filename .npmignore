@@ -12,5 +12,6 @@ web/*.config.*
 web/package*.json
 web/tsconfig*.json
 web/index.html
+homepage/
 IMPLEMENTATION_BRIEF.md
 PRD.md

@@ -1,0 +1,188 @@
+@import "tailwindcss";
+
+/* ── Theme tokens ── */
+@theme {
+  --color-neon: #41C1F7;
+  --color-neon-dim: #41C1F720;
+  --color-neon-glow: #41C1F740;
+  --color-neon-strong: #41C1F780;
+  --color-surface: #0A0A0B;
+  --color-surface-raised: #111113;
+  --color-surface-overlay: #1A1A1D;
+  --color-border-subtle: #ffffff10;
+  --color-border-medium: #ffffff18;
+  --color-text-primary: #EDEDEF;
+  --color-text-secondary: #8B8B8F;
+  --color-text-tertiary: #5A5A5E;
+
+  --font-heading: 'Cabinet Grotesk', 'LINE Seed Sans KR', sans-serif;
+  --font-body: 'LINE Seed Sans KR', 'Cabinet Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+}
+
+/* ── Light theme ── */
+.light {
+  --color-surface: #FAFAFA;
+  --color-surface-raised: #FFFFFF;
+  --color-surface-overlay: #F0F0F2;
+  --color-border-subtle: #00000010;
+  --color-border-medium: #00000018;
+  --color-text-primary: #0A0A0B;
+  --color-text-secondary: #5A5A5E;
+  --color-text-tertiary: #8B8B8F;
+  --color-neon-dim: #41C1F715;
+  --color-neon-glow: #41C1F730;
+  --color-neon-strong: #41C1F760;
+}
+
+/* ── Base ── */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background-color: var(--color-neon-strong);
+  color: white;
+}
+
+/* ── Dot grid background ── */
+.dot-grid {
+  background-image: radial-gradient(circle, var(--color-border-medium) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ── Glow effects ── */
+.glow-neon {
+  box-shadow:
+    0 0 20px var(--color-neon-dim),
+    0 0 60px var(--color-neon-dim),
+    inset 0 0 20px var(--color-neon-dim);
+}
+
+.text-glow {
+  text-shadow: 0 0 40px var(--color-neon-glow), 0 0 80px var(--color-neon-dim);
+}
+
+/* ── Scroll-triggered animations ── */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-on-scroll {
+  opacity: 0;
+}
+
+.animate-on-scroll.is-visible {
+  animation: fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-on-scroll.delay-1.is-visible { animation-delay: 0.1s; }
+.animate-on-scroll.delay-2.is-visible { animation-delay: 0.2s; }
+.animate-on-scroll.delay-3.is-visible { animation-delay: 0.3s; }
+.animate-on-scroll.delay-4.is-visible { animation-delay: 0.4s; }
+.animate-on-scroll.delay-5.is-visible { animation-delay: 0.5s; }
+
+/* ── Loop diagram pulse ── */
+@keyframes pulse-ring {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes orbit-dash {
+  to { stroke-dashoffset: -40; }
+}
+
+.loop-pulse {
+  animation: pulse-ring 3s ease-in-out infinite;
+}
+
+.orbit-path {
+  stroke-dasharray: 8 12;
+  animation: orbit-dash 1.5s linear infinite;
+}
+
+/* ── Terminal code block ── */
+.terminal {
+  background: #0D0D0F;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* ── Feature card hover ── */
+.feature-card {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.feature-card:hover {
+  border-color: var(--color-neon-strong);
+  box-shadow: 0 0 30px var(--color-neon-dim);
+  transform: translateY(-2px);
+}
+
+/* ── Copy button ── */
+.copy-btn {
+  transition: all 0.2s ease;
+}
+.copy-btn:hover {
+  color: var(--color-neon);
+}
+
+/* ── Hero gradient mesh ── */
+.hero-gradient {
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 0%, var(--color-neon-dim) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 70% 10%, #41C1F710 0%, transparent 50%);
+}
+
+.light .hero-gradient {
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 0%, #41C1F718 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 70% 10%, #41C1F710 0%, transparent 50%);
+}

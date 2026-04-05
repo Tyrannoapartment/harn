@@ -21,6 +21,8 @@
     "dev": "node src/cli.js",
     "dev:web": "cd web && npm run dev",
     "build:web": "cd web && npm run build",
+    "dev:homepage": "cd homepage && npm run dev",
+    "build:homepage": "cd homepage && npm run build",
     "lint": "for f in src/**/*.js src/*.js; do node --check $f || exit 1; done && echo '✓ syntax OK'",
     "test": "for f in src/**/*.js src/*.js; do node --check $f || exit 1; done && echo '✓ syntax OK'",
     "postinstall": ""
