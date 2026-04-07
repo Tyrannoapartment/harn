@@ -13,7 +13,7 @@ import { listRuns, currentRunId } from '../../run/run.js';
 import { memoryLoad, memoryAppend } from '../../features/memory.js';
 import { aiGenerate, getModelsForBackend, refreshModelCache, detectAiCli, getFallbackModels, checkBackendHealth, getAllBackendModels, killActiveChild, checkWrapperStatus, setWrapperConfig } from '../../ai/backend.js';
 import { chat as assistantChat } from '../../features/assistant.js';
-import { getMcpConfigs, getMcpSummary, setMcpServer, removeMcpServer } from '../../features/mcp.js';
+import { getMcpConfigs, getMcpSummary, setMcpServer, removeMcpServer, checkFigmaMcp } from '../../features/mcp.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -434,6 +434,77 @@ export function createApiRouter({ harnDir, rootDir, configFile, scriptDir, sse, 
       res.json({ ok, servers });
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Figma MCP Status ───
+  router.get('/figma/status', (_req, res) => {
+    try {
+      const result = checkFigmaMcp(rootDir);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  router.post('/figma/test', async (_req, res) => {
+    try {
+      const { found, servers } = checkFigmaMcp(rootDir);
+      if (!found) {
+        return res.json({ ok: false, error: 'No Figma MCP server configured', servers: [] });
+      }
+
+      // Try to test the first available Figma server by spawning the CLI
+      const server = servers[0];
+      const { spawn } = await import('node:child_process');
+
+      // Build a minimal test prompt that triggers Figma MCP tool usage
+      const testPrompt = 'List the available Figma MCP tools. Just list tool names, nothing else. Keep it brief.';
+      let cmd, args;
+
+      switch (server.cli) {
+        case 'copilot':
+          cmd = 'copilot';
+          args = ['-p', testPrompt, '--add-dir', rootDir];
+          break;
+        case 'claude':
+          cmd = 'claude';
+          args = ['-p', testPrompt, '--allowedTools', `mcp__${server.name}*`];
+          break;
+        default:
+          cmd = 'copilot';
+          args = ['-p', testPrompt, '--add-dir', rootDir];
+      }
+
+      const child = spawn(cmd, args, {
+        cwd: rootDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 30000,
+      });
+
+      const stdout = [];
+      const stderr = [];
+      child.stdout.on('data', (c) => stdout.push(c));
+      child.stderr.on('data', (c) => stderr.push(c));
+
+      child.on('close', (code) => {
+        const out = Buffer.concat(stdout).toString('utf8');
+        const err = Buffer.concat(stderr).toString('utf8');
+        const hasFigmaTools = /figma|get_design_context|get_screenshot|get_metadata/i.test(out);
+        res.json({
+          ok: code === 0 && hasFigmaTools,
+          output: out.slice(0, 1000),
+          error: code !== 0 ? err.slice(0, 500) : '',
+          server: { name: server.name, cli: server.cli, scope: server.scope },
+          toolsDetected: hasFigmaTools,
+        });
+      });
+
+      child.on('error', (err) => {
+        res.json({ ok: false, error: err.message, server: { name: server.name, cli: server.cli, scope: server.scope } });
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
     }
   });
 

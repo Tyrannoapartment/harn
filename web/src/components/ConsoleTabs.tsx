@@ -134,6 +134,7 @@ export function ConsoleTabs() {
   useEffect(() => {
     const PHASE_ACTIVITY: Record<string, { label: string; emoji: string }> = {
       plan: { label: 'Planner', emoji: '📋' },
+      design: { label: 'Designer', emoji: '🎨' },
       starting: { label: 'Sprint Loop', emoji: '🚀' },
       contract: { label: 'Generator', emoji: '📝' },
       implement: { label: 'Generator', emoji: '⚡' },
@@ -146,6 +147,7 @@ export function ConsoleTabs() {
 
     const PHASE_DESC: Record<string, string> = {
       plan: 'Generating plan…',
+      design: 'Creating design specification…',
       starting: 'Sprint loop started',
       contract: 'Proposing contract…',
       implement: 'Implementing…',

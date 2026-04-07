@@ -16,6 +16,7 @@ import { routeModel } from './routing.js';
 
 const ROLE_BACKEND_KEYS = {
   planner:             'PLANNER_BACKEND',
+  designer:            'DESIGNER_BACKEND',
   generator_contract:  'GENERATOR_CONTRACT_BACKEND',
   generator_impl:      'GENERATOR_IMPL_BACKEND',
   evaluator_contract:  'EVALUATOR_CONTRACT_BACKEND',
@@ -24,6 +25,7 @@ const ROLE_BACKEND_KEYS = {
 
 const ROLE_MODEL_KEYS = {
   planner:             'PLANNER_MODEL',
+  designer:            'DESIGNER_MODEL',
   generator_contract:  'GENERATOR_CONTRACT_MODEL',
   generator_impl:      'GENERATOR_IMPL_MODEL',
   evaluator_contract:  'EVALUATOR_CONTRACT_MODEL',
@@ -32,6 +34,7 @@ const ROLE_MODEL_KEYS = {
 
 const ROLE_GUIDANCE_MAP = {
   planner:            'plan',
+  designer:           'plan',
   generator_contract: 'implement',
   generator_impl:     'implement',
   evaluator_contract: 'evaluate',

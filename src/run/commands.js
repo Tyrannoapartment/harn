@@ -216,6 +216,59 @@ export async function cmdPlan({ slug, runDir, config, harnDir, rootDir, scriptDi
   return { planText, specMd, scopePlans };
 }
 
+// ── cmd: design ───────────────────────────────────────────────────────────────
+/**
+ * Designer creates design spec for scopes that need UI/UX work.
+ * Uses Figma MCP tools if available.
+ * Writes: sprints/scope-{N}/design.md
+ * Design output is injected into Generator's contract and implementation prompts.
+ */
+export async function cmdDesign({ runDir, scopeNum, config, harnDir, scriptDir, onLog, onData, onResult }) {
+  logStep('Design phase — creating design specification');
+  const sDir = scopeDir(runDir, scopeNum);
+
+  const spec = existsSync(join(runDir, 'spec.md'))
+    ? readFileSync(join(runDir, 'spec.md'), 'utf-8') : '';
+  const scopePlan = readScopePlan(runDir, scopeNum);
+
+  const designerTemplate = loadPrompt('designer', harnDir, scriptDir);
+
+  const prompt = [
+    designerTemplate,
+    `\n\n## Product Spec\n\n${spec}`,
+    `\n\n## Scope ${scopeNum} Plan\n\n${scopePlan}`,
+    `\n\nYou are working on Scope ${scopeNum}. Create a detailed design specification for this scope.`,
+    'Use Figma MCP tools if available to reference existing designs and design system tokens.',
+    'Output your design spec inside the `=== design.md ===` section marker.',
+  ].join('\n');
+
+  const { output, backend, model } = await invokeRoleStreaming({
+    role: 'designer', roleDetail: 'designer',
+    prompt, runDir, harnDir, scriptDir, config, onLog, onData,
+  });
+
+  // Parse design output
+  let designContent = extractSection(output, 'design.md');
+  if (!designContent && output.trim()) {
+    designContent = output.trim();
+  }
+
+  // Write design spec
+  writeFileSync(join(sDir, 'design.md'), designContent);
+
+  // Broadcast result
+  if (onResult) {
+    onResult(`Scope ${scopeNum} design specification created`, {
+      phase: 'design', role: 'designer', backend, model,
+      files: [{ name: `sprints/scope-${scopeNum}/design.md`, path: join(sDir, 'design.md'), content: designContent }],
+    });
+  }
+
+  if (onLog) onLog(`Design spec created for scope ${scopeNum}`);
+  logOk(`Design spec created for scope ${scopeNum}`);
+  return designContent;
+}
+
 // ── cmd: contract ─────────────────────────────────────────────────────────────
 /**
  * Generator proposes contract → Evaluator reviews.
@@ -230,6 +283,10 @@ export async function cmdContract({ runDir, scopeNum, config, harnDir, scriptDir
     ? readFileSync(join(runDir, 'spec.md'), 'utf-8') : '';
   const scopePlan = readScopePlan(runDir, scopeNum);
 
+  // Load design spec if it exists (from Designer agent)
+  const designSpec = existsSync(join(sDir, 'design.md'))
+    ? readFileSync(join(sDir, 'design.md'), 'utf-8') : '';
+
   // Generator proposes contract
   const genTemplate = loadPrompt('generator', harnDir, scriptDir);
 
@@ -237,6 +294,7 @@ export async function cmdContract({ runDir, scopeNum, config, harnDir, scriptDir
     genTemplate,
     `\n\n## Product Spec\n\n${spec}`,
     `\n\n## Scope ${scopeNum} Plan\n\n${scopePlan}`,
+    ...(designSpec ? [`\n\n## Design Specification\n\nThe Designer agent has provided the following design spec. Follow it precisely for all UI/UX implementation.\n\n${designSpec}`] : []),
     `\n\nYou are working on Scope ${scopeNum}. Propose a detailed contract (scope definition) for this scope.`,
     'Include: objectives, deliverables, affected files, acceptance criteria, and any dependencies.',
   ].join('');
@@ -315,6 +373,10 @@ export async function cmdImplement({ runDir, scopeNum, config, harnDir, scriptDi
     ? readFileSync(join(runDir, 'spec.md'), 'utf-8') : '';
   const scopePlan = readScopePlan(runDir, scopeNum);
 
+  // Load design spec if available
+  const designSpec = existsSync(join(sDir, 'design.md'))
+    ? readFileSync(join(sDir, 'design.md'), 'utf-8') : '';
+
   const iter = scopeIteration(runDir, scopeNum);
   setScopeIteration(runDir, scopeNum, iter);
 
@@ -331,6 +393,7 @@ export async function cmdImplement({ runDir, scopeNum, config, harnDir, scriptDi
     genTemplate,
     `\n\n## Product Spec\n\n${spec}`,
     `\n\n## Scope ${scopeNum} Plan\n\n${scopePlan}`,
+    ...(designSpec ? [`\n\n## Design Specification\n\nThe Designer agent has provided the following design spec. Follow it precisely for all UI/UX implementation.\n\n${designSpec}`] : []),
     `\n\n## Sprint Contract\n\n${contract}`,
     qaContext,
     `\n\nImplement all features defined in the contract. This is iteration ${iter}.`,

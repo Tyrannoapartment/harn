@@ -83,6 +83,28 @@ export interface McpCliConfig {
   projectExists: boolean
 }
 
+export interface FigmaMcpServer {
+  name: string
+  cli: string
+  scope: string
+  type: string
+  command: string | null
+  url: string | null
+}
+
+export interface FigmaStatus {
+  found: boolean
+  servers: FigmaMcpServer[]
+}
+
+export interface FigmaTestResult {
+  ok: boolean
+  output?: string
+  error?: string
+  server?: { name: string; cli: string; scope: string }
+  toolsDetected?: boolean
+}
+
 export const api = {
   health: () => fetchJSON<{ status: string; version: string }>('/health'),
   status: () => fetchJSON<{ active: unknown; pending: string[]; inProgress: string | null; config: Record<string, string>; rootDir: string; isRunning: boolean }>('/status'),
@@ -152,4 +174,11 @@ export const api = {
 
   removeMcpServer: (cli: string, scope: string, name: string) =>
     fetchJSON<{ ok: boolean; servers: McpServer[] }>('/mcp/server', { method: 'DELETE', body: JSON.stringify({ cli, scope, name }) }),
+
+  // Figma MCP
+  getFigmaStatus: () =>
+    fetchJSON<FigmaStatus>('/figma/status'),
+
+  testFigmaMcp: () =>
+    fetchJSON<FigmaTestResult>('/figma/test', { method: 'POST' }),
 }

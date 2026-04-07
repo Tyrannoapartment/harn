@@ -40,6 +40,11 @@ Project-specific architecture, rules, tech stack, and conventions are provided i
 - Every sprint must include: "No compile/build errors" and "Static analysis passes" in PASS criteria
 - If a sprint involves testing, list which units/flows must be covered
 
+### Design-First Scopes
+- If a scope involves UI/UX work (new screens, components, visual changes), mark it as **needs_design: true**
+- A Designer agent will create a design specification before the Generator starts implementation
+- Backend-only, refactoring, or infrastructure scopes should use **needs_design: false**
+
 ### Common Pitfalls to Avoid
 - Do not split a single feature across multiple sprints unless explicitly configured
 - Do not create sprints that depend on future sprints (each must be self-contained)
@@ -80,6 +85,7 @@ Use EXACTLY these section markers — the harness depends on them:
 **Goal**: [Single clear goal]
 **Packages**: [affected modules/packages]
 **Features**: [feature list]
+**needs_design**: [true or false — true if this scope involves UI/UX work]
 
 **PASS Criteria**:
 - [ ] [Observable outcome 1]
@@ -94,6 +100,7 @@ Use EXACTLY these section markers — the harness depends on them:
 **Goal**: [Single clear goal]
 **Packages**: [Same as Sprint 001]
 **Features**: [feature list]
+**needs_design**: [true or false]
 
 **PASS Criteria**:
 - [ ] [Observable outcome 1]

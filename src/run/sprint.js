@@ -13,7 +13,7 @@ import {
   currentScopeNum, scopeDir, scopeStatus, scopeIteration,
   setScopeIteration, setScopeStatus, setCurrentScopeNum,
 } from './run.js';
-import { cmdContract, cmdImplement, cmdEvaluate, cmdNext } from './commands.js';
+import { cmdContract, cmdImplement, cmdEvaluate, cmdNext, cmdDesign } from './commands.js';
 import { logInfo, logOk, logWarn, logErr, logStep } from '../core/logger.js';
 import { t } from '../core/i18n.js';
 import { progressBar, formatElapsed } from './progress.js';
@@ -44,6 +44,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
 
   const PHASE_MODEL_KEYS = {
     plan: 'PLANNER_MODEL',
+    design: 'DESIGNER_MODEL',
     contract: 'GENERATOR_CONTRACT_MODEL',
     implement: 'GENERATOR_IMPL_MODEL',
     evaluate: 'EVALUATOR_QA_MODEL',
@@ -52,6 +53,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
 
   const PHASE_BACKEND_KEYS = {
     plan: 'PLANNER_BACKEND',
+    design: 'DESIGNER_BACKEND',
     contract: 'GENERATOR_CONTRACT_BACKEND',
     implement: 'GENERATOR_IMPL_BACKEND',
     evaluate: 'EVALUATOR_QA_BACKEND',
@@ -64,7 +66,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
     return backend;
   };
   const phaseAgent = (phase) => {
-    const a = { plan: 'planner', contract: 'generator', implement: 'generator', evaluate: 'evaluator', next: 'planner' };
+    const a = { plan: 'planner', design: 'designer', contract: 'generator', implement: 'generator', evaluate: 'evaluator', next: 'planner' };
     return a[phase] || '';
   };
 
@@ -88,7 +90,7 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
     return false;
   };
 
-  const AI_PHASES = new Set(['plan', 'contract', 'implement', 'evaluate']);
+  const AI_PHASES = new Set(['plan', 'design', 'contract', 'implement', 'evaluate']);
 
   const emitStatus = (phase, extra = {}) => {
     const isAI = AI_PHASES.has(phase);
@@ -132,6 +134,25 @@ export async function runSprintLoop({ runDir, config, harnDir, scriptDir, rootDi
       }
 
       try {
+      // ── Design phase (if scope needs design) ──
+      const designFile = join(sDir, 'design.md');
+      if (!existsSync(designFile)) {
+        const scopePlanFile = join(runDir, 'plan', `scope-${currentScope}.md`);
+        let needsDesign = false;
+        if (existsSync(scopePlanFile)) {
+          const scopePlanText = readFileSync(scopePlanFile, 'utf-8');
+          needsDesign = /\*\*needs_design\*\*:\s*true/i.test(scopePlanText)
+            || /needs_design:\s*true/i.test(scopePlanText);
+        }
+        if (needsDesign) {
+          if (checkStop()) break;
+          emitStatus('design', { scope: currentScope, totalScopes });
+          emitProgress(currentScope, totalScopes, 'design', 0);
+          await cmdDesign({ runDir, scopeNum: currentScope, config, harnDir, scriptDir, onLog, onData, onResult });
+          if (checkStop()) break;
+        }
+      }
+
       // ── Contract phase ──
       const contractFile = join(sDir, 'contract.md');
       if (!existsSync(contractFile)) {

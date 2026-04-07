@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { api, type BackendInfo, type McpServer, type WrappersStatus } from '@/lib/api'
+import { api, type BackendInfo, type McpServer, type WrappersStatus, type FigmaStatus, type FigmaTestResult } from '@/lib/api'
 import { useI18n } from '@/hooks/useI18n'
 import { setLang } from '@/lib/i18n'
 
@@ -31,11 +31,13 @@ interface Config {
   GENERATOR_IMPL_BACKEND?: string
   EVALUATOR_CONTRACT_BACKEND?: string
   EVALUATOR_QA_BACKEND?: string
+  DESIGNER_BACKEND?: string
   PLANNER_MODEL?: string
   GENERATOR_CONTRACT_MODEL?: string
   GENERATOR_IMPL_MODEL?: string
   EVALUATOR_CONTRACT_MODEL?: string
   EVALUATOR_QA_MODEL?: string
+  DESIGNER_MODEL?: string
   AUXILIARY_MODEL?: string
   MAX_ITERATIONS?: string
   MODEL_ROUTING?: string
@@ -49,6 +51,7 @@ interface Config {
 // Map model config keys to their per-role backend config keys
 const MODEL_TO_BACKEND_KEY: Record<string, string> = {
   PLANNER_MODEL: 'PLANNER_BACKEND',
+  DESIGNER_MODEL: 'DESIGNER_BACKEND',
   GENERATOR_CONTRACT_MODEL: 'GENERATOR_CONTRACT_BACKEND',
   GENERATOR_IMPL_MODEL: 'GENERATOR_IMPL_BACKEND',
   EVALUATOR_CONTRACT_MODEL: 'EVALUATOR_CONTRACT_BACKEND',
@@ -66,6 +69,9 @@ export function SettingsPanel() {
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [loadingBackends, setLoadingBackends] = useState(true)
   const [wrappers, setWrappers] = useState<WrappersStatus | null>(null)
+  const [figmaStatus, setFigmaStatus] = useState<FigmaStatus | null>(null)
+  const [figmaTestResult, setFigmaTestResult] = useState<FigmaTestResult | null>(null)
+  const [figmaTesting, setFigmaTesting] = useState(false)
   // Tracks which backend each model field was explicitly selected from
   const [modelSourceMap, setModelSourceMap] = useState<Record<string, string>>({})
 
@@ -74,6 +80,7 @@ export function SettingsPanel() {
 
   const MODEL_FIELDS = [
     { key: 'PLANNER_MODEL', labelKey: 'settings.planner', default: 'claude-haiku-4.5' },
+    { key: 'DESIGNER_MODEL', labelKey: 'settings.designer', default: 'claude-sonnet-4.6' },
     { key: 'GENERATOR_CONTRACT_MODEL', labelKey: 'settings.generatorContract', default: 'claude-sonnet-4.6' },
     { key: 'GENERATOR_IMPL_MODEL', labelKey: 'settings.generatorImpl', default: 'claude-opus-4.6' },
     { key: 'EVALUATOR_CONTRACT_MODEL', labelKey: 'settings.evaluatorContract', default: 'claude-haiku-4.5' },
@@ -97,12 +104,26 @@ export function SettingsPanel() {
       setDetected(data.detected || '')
     }).catch(() => {}).finally(() => setLoadingBackends(false))
     api.getWrappers().then(setWrappers).catch(() => {})
+    api.getFigmaStatus().then(setFigmaStatus).catch(() => {})
   }, [])
 
   const set = (key: string, value: string) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
     setDirty(true)
     setSaved(false)
+  }
+
+  const handleFigmaTest = async () => {
+    setFigmaTesting(true)
+    setFigmaTestResult(null)
+    try {
+      const result = await api.testFigmaMcp()
+      setFigmaTestResult(result)
+    } catch {
+      setFigmaTestResult({ ok: false, error: 'Failed to connect to test endpoint' })
+    } finally {
+      setFigmaTesting(false)
+    }
   }
 
   // Select a model: value format is "backend/model"
@@ -445,6 +466,84 @@ export function SettingsPanel() {
           <Separator />
           </>
         )}
+
+        {/* Figma MCP (Designer) */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('settings.figmaMcp')}</h3>
+            <p className="text-[10px] text-muted-foreground mt-0.5">{t('settings.figmaMcpDesc')}</p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xs">{t('settings.figmaStatus')}:</span>
+              {figmaStatus?.found ? (
+                <Badge variant="default" className="text-[10px] px-1.5 py-0 bg-green-600 hover:bg-green-600">
+                  {t('settings.figmaConnected')}
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  {t('settings.figmaNotFound')}
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {figmaStatus?.found && figmaStatus.servers.map((s) => (
+            <div key={`${s.cli}-${s.name}`} className="text-[10px] text-muted-foreground pl-2 border-l-2 border-muted">
+              <span className="font-mono">{s.name}</span>
+              <span className="ml-1 text-muted-foreground/60">({s.cli} · {s.scope})</span>
+            </div>
+          ))}
+
+          {!figmaStatus?.found && (
+            <p className="text-[10px] text-muted-foreground/70 italic">
+              {t('settings.figmaHint')}
+            </p>
+          )}
+
+          {figmaStatus?.found && (
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs w-full"
+                onClick={handleFigmaTest}
+                disabled={figmaTesting}
+              >
+                {figmaTesting ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    {t('settings.figmaTesting')}
+                  </span>
+                ) : (
+                  t('settings.figmaTestBtn')
+                )}
+              </Button>
+
+              {figmaTestResult && (
+                <div className={`text-[10px] p-2 rounded border ${figmaTestResult.ok ? 'border-green-500/30 bg-green-500/5 text-green-400' : 'border-red-500/30 bg-red-500/5 text-red-400'}`}>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span>{figmaTestResult.ok ? '✅' : '❌'}</span>
+                    <span className="font-medium">
+                      {figmaTestResult.ok ? t('settings.figmaTestPass') : t('settings.figmaTestFail')}
+                    </span>
+                  </div>
+                  {figmaTestResult.error && (
+                    <p className="font-mono text-[9px] text-muted-foreground mt-1 break-all">{figmaTestResult.error}</p>
+                  )}
+                  {figmaTestResult.ok && figmaTestResult.server && (
+                    <p className="font-mono text-[9px] mt-1">
+                      via {figmaTestResult.server.cli} → {figmaTestResult.server.name}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <Separator />
 
         {/* Language */}
         <div className="space-y-3">

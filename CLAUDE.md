@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-**harn** is a multi-agent sprint development loop orchestrator written in Bash. It automates a **Planner → Generator → Evaluator** loop that takes a backlog item and drives it to completion through AI agents (GitHub Copilot CLI or Claude CLI).
+**harn** is a multi-agent sprint development loop orchestrator written in Bash. It automates a **Planner → Designer → Generator → Evaluator** loop that takes a backlog item and drives it to completion through AI agents (GitHub Copilot CLI or Claude CLI).
 
 Dependencies: `python3`, and either `copilot` (GitHub Copilot CLI) or `claude` CLI.
 
@@ -91,8 +91,9 @@ All state for a run lives under `.harn/` in the **target project directory** (no
 
 ```
 cmd_start
-  └─ cmd_plan (Planner: backlog item → spec.md + sprint-plan.md)
+  └─ cmd_plan (Planner: backlog item → spec.md + scope plans with needs_design flag)
       └─ _run_sprint_loop
+          ├─ cmd_design (Designer creates design spec via Figma MCP — only if needs_design: true)
           ├─ cmd_contract (Generator proposes scope → Evaluator approves/revises)
           ├─ cmd_implement (Generator implements; retries up to MAX_ITERATIONS on FAIL)
           ├─ cmd_evaluate (Evaluator QA; runs build/test/lint/E2E)
@@ -113,6 +114,7 @@ Two distinct paths:
 Agents output **exact section markers** parsed by `awk`. Do not change these strings:
 
 - Planner: `=== plan.text ===`, `=== spec.md ===`, `=== sprint-plan.md ===`
+- Designer: `=== design.md ===` (design specification for UI/UX scopes)
 - Evaluator verdict: must end with exactly `VERDICT: PASS` or `VERDICT: FAIL` on its own line
 - Contract review: must contain `APPROVED` or `NEEDS_REVISION` on its own line
 - Retrospective: `=== retro-summary ===`, `=== prompt-suggestion:planner ===`, `=== prompt-suggestion:generator ===`, `=== prompt-suggestion:evaluator ===`
@@ -164,7 +166,7 @@ Slugs must have no spaces — they're used as file names and programmatic identi
 
 CLI flag > `HARN_MODEL_<ROLE>` env var > `.harn_config` `MODEL_<ROLE>` > hardcoded defaults
 
-Default models: Planner=`claude-haiku-4.5`, Generator(contract)=`claude-sonnet-4.6`, Generator(impl)=`claude-opus-4.6`, Evaluator(contract)=`claude-haiku-4.5`, Evaluator(QA)=`claude-sonnet-4.5`
+Default models: Planner=`claude-haiku-4.5`, Designer=`claude-sonnet-4.6`, Generator(contract)=`claude-sonnet-4.6`, Generator(impl)=`claude-opus-4.6`, Evaluator(contract)=`claude-haiku-4.5`, Evaluator(QA)=`claude-sonnet-4.5`
 
 Per-invocation override:
 ```bash

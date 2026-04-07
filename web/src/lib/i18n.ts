@@ -131,6 +131,7 @@ const strings: Translations = {
   'settings.notInstalled': { en: 'Not installed', ko: '미설치' },
   'settings.checking': { en: 'Checking…', ko: '확인중…' },
   'settings.planner': { en: 'Planner', ko: '플래너' },
+  'settings.designer': { en: 'Designer (Figma)', ko: '디자이너 (Figma)' },
   'settings.generatorContract': { en: 'Generator (Contract)', ko: '제너레이터 (계약)' },
   'settings.generatorImpl': { en: 'Generator (Impl)', ko: '제너레이터 (구현)' },
   'settings.evaluatorContract': { en: 'Evaluator (Contract)', ko: '평가자 (계약)' },
@@ -163,6 +164,18 @@ const strings: Translations = {
   'settings.mcpCli': { en: 'CLI', ko: 'CLI' },
   'settings.mcpRemove': { en: 'Remove', ko: '삭제' },
   'settings.mcpSave': { en: 'Save', ko: '저장' },
+
+  // ── Figma MCP ──
+  'settings.figmaMcp': { en: 'Figma MCP (Designer)', ko: 'Figma MCP (디자이너)' },
+  'settings.figmaMcpDesc': { en: 'Figma MCP connection for the Designer agent', ko: '디자이너 에이전트용 Figma MCP 연결' },
+  'settings.figmaStatus': { en: 'Status', ko: '상태' },
+  'settings.figmaConnected': { en: 'Connected', ko: '연결됨' },
+  'settings.figmaNotFound': { en: 'Not configured', ko: '미설정' },
+  'settings.figmaHint': { en: 'Add a Figma MCP server in the MCP Servers section above to enable the Designer agent.', ko: '디자이너 에이전트를 활성화하려면 위의 MCP 서버 설정에 Figma MCP 서버를 추가하세요.' },
+  'settings.figmaTestBtn': { en: 'Test Figma MCP Connection', ko: 'Figma MCP 연결 테스트' },
+  'settings.figmaTesting': { en: 'Testing…', ko: '테스트 중…' },
+  'settings.figmaTestPass': { en: 'Figma MCP is working — tools detected', ko: 'Figma MCP 정상 작동 — 도구 감지됨' },
+  'settings.figmaTestFail': { en: 'Figma MCP test failed', ko: 'Figma MCP 테스트 실패' },
 
   // ── Memory ──
   'memory.empty': { en: 'No memory yet', ko: '메모리가 없습니다' },
