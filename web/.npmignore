@@ -5,3 +5,4 @@ public
 package*.json
 tsconfig*.json
 /index.html
+!dist/**
