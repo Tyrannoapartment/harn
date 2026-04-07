@@ -4,4 +4,4 @@ public
 *.config.*
 package*.json
 tsconfig*.json
-index.html
+/index.html
